@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <link rel="icon" href="/static/logo.png" type="image/png">
+    <link rel="icon" href="/static/images/logo.png" type="image/png">
     <title>Angle Control | 视角重塑</title>
     <script>
         (function(){
@@ -17,21 +17,21 @@
             } catch(e) {}
         })();
     </script>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://unpkg.com/lucide@latest"></script>
-    <script src="/static/theme.js?v=20260516-theme-sync"></script>
-    <script src="/static/i18n.js?v=20260512-pages2"></script>
-    <script src="/static/image-preview.js?v=20260516"></script>
-    <script src="/static/history-bulk-manager.js?v=20260517"></script>
+    <script src="/static/vendor/js/tailwindcss-cdn.js?v=2026.05.22"></script>
+    <script src="/static/vendor/js/lucide.js?v=2026.05.22"></script>
+    <script src="/static/js/theme.js?v=2026.05.22"></script>
+    <script src="/static/js/i18n.js?v=2026.05.22"></script>
+    <script src="/static/js/image-preview.js?v=2026.05.22"></script>
+    <script src="/static/js/history-bulk-manager.js?v=2026.05.22"></script>
     <script type="importmap">
         {
             "imports": {
-                "three": "https://unpkg.com/three@0.160.0/build/three.module.js"
+                "three": "/static/vendor/js/three-0.160.0.module.js?v=2026.05.22"
             }
         }
     </script>
     <style>
-        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;800&family=JetBrains+Mono:wght@400;700&display=swap');
+        @import url('/static/vendor/css/fonts.css?v=2026.05.22');
 
         :root {
             --accent: #111827;
@@ -225,7 +225,7 @@
             z-index: 1;
         }
     </style>
-    <link rel="stylesheet" href="/static/theme.css?v=20260510-studio-pages-blue-dark10">
+    <link rel="stylesheet" href="/static/css/theme.css?v=2026.05.22">
 </head>
 
 <body class="selection:bg-black selection:text-white">
@@ -1173,7 +1173,7 @@
             const isCloud = data.is_cloud || (imgUrl && imgUrl.includes('cloud_angle'));
             const badgeHtml = isCloud ? `
                 <div class="absolute top-3 left-3 z-10">
-                    <img src="/static/modelscope.gif" class="h-4 w-auto object-contain bg-white/90 rounded-full p-0.5 shadow-sm">
+                    <img src="/static/images/modelscope.gif" class="h-4 w-auto object-contain bg-white/90 rounded-full p-0.5 shadow-sm">
                 </div>
             ` : '';
 
