@@ -1902,6 +1902,10 @@ function addSmartGenerationLog({run, outputs=[], runMs=0, error='', taskId='', u
         : [buildSmartLogEntry(run, {outputs, runMs, error, taskId, upstreamTaskId})];
     canvas.logs = [...entries, ...canvas.logs].slice(0, 500);
     scheduleSave();
+    // Keep the top-left spending indicator in sync as soon as a generation
+    // succeeds. This single completion hook covers direct, batch, and cascade
+    // runs, including asynchronous task polling paths that log on settlement.
+    if(!error) void loadCanvasUsage();
 }
 // Jump from a log thumbnail to the canvas node that holds that output, mirroring
 // the Canvas Agent's click-to-focus behaviour (select + center viewport). We
