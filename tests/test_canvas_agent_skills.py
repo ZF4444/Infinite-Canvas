@@ -11,6 +11,39 @@ from app.services.canvas_agent.runtime import create_canvas_agent
 
 from app.services.canvas_agent import skills
 from app.services.canvas_agent.tools import build_canvas_tools
+from app.services.canvas_agent.system_prompt import build_canvas_system_prompt
+
+
+def test_skill_catalog_is_injected_by_the_prompt_not_exposed_as_an_agent_tool():
+    names = {
+        item.name for item in build_canvas_tools(
+            user_id="user", run_id="run", canvas_id="canvas",
+        )
+    }
+
+    assert "list_canvas_skills" not in names
+    assert {"read_canvas_skill", "read_canvas_skill_file"} <= names
+
+
+def test_canvas_system_prompt_uses_tau_style_sections_and_skill_metadata():
+    prompt = build_canvas_system_prompt(tools=[type("Tool", (), {"name": "read_canvas_skill"})()])
+
+    assert "可用工具:" in prompt
+    assert "规则:" in prompt
+    assert "<available_skills>" in prompt
+    assert "<name>image-generation</name>" in prompt
+    assert "Skill 正文和资料仅用于规划参考" in prompt
+
+
+def test_skill_metadata_prompt_supports_explicit_skill_input_and_xml_format():
+    summary = skills.SkillSummary("demo", "Demo <workflow>")
+
+    assert skills.skill_metadata_prompt([summary]) == (
+        "可用 Skill（仅元数据，未加载正文）：\n- demo: Demo <workflow>"
+    )
+    xml = skills.skill_metadata_prompt([summary], xml=True)
+    assert "<name>demo</name>" in xml
+    assert "Demo &lt;workflow&gt;" in xml
 
 
 def test_capability_parameters_display_lookup_runs_off_event_loop(monkeypatch):
@@ -113,6 +146,32 @@ def test_skill_directory_is_discovered_without_python_registration(tmp_path):
     assert skills.read_skill_document("demo-skill", root=str(root)).content.endswith("# Demo\n")
 
 
+def test_skill_resource_read_is_relative_bounded_and_supports_continuation(tmp_path):
+    root = tmp_path / "skills"
+    skill_dir = root / "demo-skill"
+    skill_dir.mkdir(parents=True)
+    (skill_dir / "SKILL.md").write_text(
+        "---\nname: demo-skill\ndescription: Demo workflow\n---\n# Demo\n",
+        encoding="utf-8",
+    )
+    reference = skill_dir / "references"
+    reference.mkdir()
+    (reference / "guide.md").write_text("one\ntwo\nthree\n", encoding="utf-8")
+
+    first = skills.read_skill_resource("demo-skill", "references/guide.md", limit=2, root=str(root))
+    second = skills.read_skill_resource("demo-skill", "references/guide.md", offset=3, root=str(root))
+
+    assert first.path == "references/guide.md"
+    assert first.content == "one\ntwo"
+    assert first.start_line == 1
+    assert first.end_line == 2
+    assert first.truncated is True
+    assert second.content == "three\n"
+    assert second.truncated is False
+    with pytest.raises(ValueError, match="Skill 目录内"):
+        skills.read_skill_resource("demo-skill", "../outside.md", root=str(root))
+
+
 def test_skill_tools_write_loaded_state_and_require_level_two_before_level_three():
     events = []
 
@@ -137,3 +196,92 @@ def test_skill_tools_write_loaded_state_and_require_level_two_before_level_three
     assert result["loaded_skills"][0]["name"] == "canvas-capabilities"
     assert any(message.tool_call_id == "call-skill" for message in result["messages"] if hasattr(message, "tool_call_id"))
     assert [event[0] for event in events] == ["skill.loaded"]
+
+
+def test_skill_file_tool_requires_loaded_skill_and_reads_reference_progressively():
+    events = []
+
+    async def emit(event_type, payload):
+        events.append((event_type, payload))
+
+    tools = build_canvas_tools(user_id="user", run_id="run", canvas_id="canvas", emit_skill_event=emit)
+
+    class Model:
+        calls = 0
+
+        def bind_tools(self, _tools):
+            return self
+
+        async def ainvoke(self, _messages):
+            self.calls += 1
+            if self.calls == 1:
+                return AIMessage(content="", tool_calls=[{
+                    "name": "read_canvas_skill",
+                    "args": {"name": "canvas-capabilities"},
+                    "id": "call-skill",
+                    "type": "tool_call",
+                }])
+            if self.calls == 2:
+                return AIMessage(content="", tool_calls=[{
+                    "name": "read_canvas_skill_file",
+                    "args": {
+                        "skill_name": "canvas-capabilities",
+                        "path": "references/capability-reading.md",
+                        "limit": 1,
+                    },
+                    "id": "call-reference",
+                    "type": "tool_call",
+                }])
+            return AIMessage(content="done")
+
+    result = asyncio.run(create_canvas_agent(
+        model=Model(), user_id="user", run_id="run", canvas_id="canvas", tools=tools,
+    ).ainvoke({"messages": []}))
+
+    reference_message = next(
+        message for message in result["messages"]
+        if isinstance(message, ToolMessage) and message.tool_call_id == "call-reference"
+    )
+    assert "[内容未完；使用 offset=2 继续读取。]" in reference_message.content
+    assert [event[0] for event in events] == ["skill.loaded", "skill.resource_loaded"]
+
+
+def test_skill_file_tool_rejects_a_skill_that_was_not_loaded():
+    events = []
+
+    async def emit(event_type, payload):
+        events.append((event_type, payload))
+
+    tool = next(
+        item for item in build_canvas_tools(
+            user_id="user", run_id="run", canvas_id="canvas", emit_skill_event=emit,
+        ) if item.name == "read_canvas_skill_file"
+    )
+
+    class State(TypedDict):
+        messages: Annotated[list, add_messages]
+        loaded_skills: list[dict[str, str]]
+
+    graph_builder = StateGraph(State)
+    graph_builder.add_node("read", ToolNode([tool]))
+    graph_builder.add_edge(START, "read")
+    graph_builder.add_edge("read", END)
+    result = asyncio.run(graph_builder.compile().ainvoke({
+        "loaded_skills": [],
+        "messages": [AIMessage(content="", tool_calls=[{
+            "id": "call-unloaded-resource",
+            "name": "read_canvas_skill_file",
+            "args": {
+                "skill_name": "canvas-capabilities",
+                "path": "references/capability-reading.md",
+            },
+            "type": "tool_call",
+        }])],
+    }))
+
+    message = next(
+        item for item in result["messages"]
+        if isinstance(item, ToolMessage) and item.tool_call_id == "call-unloaded-resource"
+    )
+    assert "必须先读取对应的 Skill 正文" in message.content
+    assert events[0][0] == "skill.resource_rejected"

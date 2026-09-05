@@ -14,7 +14,7 @@ from .context import build_canvas_context
 from .policy import assess_patch
 from .adapter import semantic_plan_to_patch
 from .store import latest_artifact, save_plan
-from .skills import list_enabled_skill_summaries, read_skill_document
+from .skills import read_skill_document, read_skill_resource
 
 
 def submit_semantic_plan(plan: dict[str, Any]) -> SemanticPlan:
@@ -85,19 +85,6 @@ def build_canvas_tools(*, user_id: str, run_id: str, canvas_id: str,
             await emit_skill_event(event_type, payload)
 
     @tool
-    async def list_canvas_skills() -> list[dict[str, Any]]:
-        """List enabled Skills available in this Run. Returns metadata only."""
-        skills = [
-            {
-                "name": skill.name,
-                "description": skill.description,
-            }
-            for skill in list_enabled_skill_summaries()
-        ]
-        await skill_event("skill.discovered", {"skills": [{"name": item["name"]} for item in skills]})
-        return skills
-
-    @tool
     async def read_canvas_skill(name: str, runtime: ToolRuntime) -> Command:
         """Read one enabled Skill body after permission and integrity validation."""
         try:
@@ -119,6 +106,78 @@ def build_canvas_tools(*, user_id: str, run_id: str, canvas_id: str,
                 artifact={"name": document.name, "content_sha256": document.content_sha256},
             )],
         })
+
+    @tool
+    async def read_canvas_skill_file(
+        skill_name: str,
+        path: str,
+        offset: int = 1,
+        limit: int = 400,
+        runtime: ToolRuntime = None,
+    ) -> Command:
+        """Read a text file under an already loaded Skill.
+
+        `path` must be relative to that Skill directory. Use offset (1-based)
+        and limit to read large reference files progressively. This tool is
+        read-only and cannot access canvas files or arbitrary server paths.
+        """
+        loaded = list((runtime.state if runtime else {}).get("loaded_skills") or [])
+        if str(skill_name or "") not in {str(item.get("name") or "") for item in loaded}:
+            reason = "必须先读取对应的 Skill 正文"
+            await skill_event("skill.resource_rejected", {
+                "skill": {"name": str(skill_name)[:64]},
+                "resource": {"path": str(path)[:500]},
+                "reason": reason,
+            })
+            return Command(update={"messages": [ToolMessage(
+                content=f"Skill 资源读取被拒绝：{reason}",
+                tool_call_id=runtime.tool_call_id if runtime else "",
+                name="read_canvas_skill_file",
+            )]})
+        try:
+            resource = await asyncio.to_thread(
+                read_skill_resource, skill_name, path, offset=offset, limit=limit,
+            )
+        except Exception as exc:
+            await skill_event("skill.resource_rejected", {
+                "skill": {"name": str(skill_name)[:64]},
+                "resource": {"path": str(path)[:500]},
+                "reason": str(exc)[:500],
+            })
+            return Command(update={"messages": [ToolMessage(
+                content=f"Skill 资源读取被拒绝：{exc}",
+                tool_call_id=runtime.tool_call_id if runtime else "",
+                name="read_canvas_skill_file",
+            )]})
+        await skill_event("skill.resource_loaded", {
+            "skill": {"name": resource.name},
+            "resource": {
+                "path": resource.path,
+                "content_sha256": resource.content_sha256,
+                "start_line": resource.start_line,
+                "end_line": resource.end_line,
+                "total_lines": resource.total_lines,
+                "truncated": resource.truncated,
+            },
+        })
+        continuation = (
+            f"\n\n[内容未完；使用 offset={resource.end_line + 1} 继续读取。]"
+            if resource.truncated else ""
+        )
+        return Command(update={"messages": [ToolMessage(
+            content=resource.content + continuation,
+            tool_call_id=runtime.tool_call_id if runtime else "",
+            name="read_canvas_skill_file",
+            artifact={
+                "skill_name": resource.name,
+                "path": resource.path,
+                "content_sha256": resource.content_sha256,
+                "start_line": resource.start_line,
+                "end_line": resource.end_line,
+                "total_lines": resource.total_lines,
+                "truncated": resource.truncated,
+            },
+        )]})
 
 
     @tool(args_schema=SemanticPlan)
@@ -152,7 +211,7 @@ def build_canvas_tools(*, user_id: str, run_id: str, canvas_id: str,
 
     tools = [
         read_canvas_context, read_capability_registry, read_capability_parameters, read_artifact,
-        list_canvas_skills, read_canvas_skill,
+        read_canvas_skill, read_canvas_skill_file,
         propose_canvas_patch, request_clarification,
     ]
     # Planning graphs must not expose the mutation tool. The graph only adds
