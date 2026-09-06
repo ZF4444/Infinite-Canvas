@@ -1,6 +1,7 @@
 """Tool-calling LangGraph runtime for the Canvas Agent."""
 from __future__ import annotations
 
+import uuid
 from typing import Annotated, Any, Awaitable, Callable, TypedDict
 
 from langchain_core.messages import AIMessage, BaseMessage, SystemMessage
@@ -12,6 +13,7 @@ from langgraph.types import interrupt
 
 from .system_prompt import build_canvas_system_prompt
 from .tools import build_canvas_tools
+from .event_factory import EventSpec, progress as progress_event, tool_completed, tool_failed, tool_started
 
 
 class CanvasAgentState(TypedDict, total=False):
@@ -39,7 +41,7 @@ def create_canvas_agent(
     execute_patch=None,
     dispatch_tasks=None,
     tools: list[StructuredTool] | None = None,
-    emit_skill_event: Callable[[str, dict[str, Any]], Awaitable[Any]]
+    emit_skill_event: Callable[[EventSpec], Awaitable[Any]]
     | None = None):
     planning_tools = tools or build_canvas_tools(
         user_id=user_id,
@@ -61,25 +63,12 @@ def create_canvas_agent(
     execution_tool_node = ToolNode(
         execution_tools) if execution_tools else None
 
-    async def progress(phase: str, message: str):
+    async def emit(spec: EventSpec) -> None:
         if emit_progress:
-            await emit_progress(run_id, {"phase": phase, "message": message})
-
-    def tool_progress_message(call: dict[str, Any]) -> str:
-        messages = {
-            "read_canvas_context": "正在读取画布上下文…",
-            "read_capability_registry": "正在查询可用能力…",
-            "read_capability_parameters": "正在读取节点配置…",
-            "read_artifact": "正在读取关联素材…",
-            "read_canvas_skill": "正在读取技能说明…",
-            "read_canvas_skill_file": "正在读取技能参考资料…",
-            "propose_canvas_patch": "正在生成执行计划…",
-            "request_clarification": "正在整理需要补充的信息…",
-        }
-        return messages.get(str(call.get("name") or ""), "正在调用画布工具…")
+            await emit_progress(run_id, spec)
 
     async def agent_node(state: CanvasAgentState) -> dict[str, Any]:
-        await progress("agent", "模型分析中…")
+        await emit(progress_event("agent", "模型分析中…"))
         system = SystemMessage(content=build_canvas_system_prompt(tools=planning_tools))
         response = await model.bind_tools(planning_tools).ainvoke(
             [system, *(state.get("messages") or [])])
@@ -89,21 +78,36 @@ def create_canvas_agent(
         last = (state.get("messages")
                 or [])[-1] if state.get("messages") else None
         calls = list(getattr(last, "tool_calls", []) or [])
-        # Report only real user-meaningful tool invocations. Tool completion is
-        # deliberately omitted: the next analysis step or Agent reply closes it.
+        domain_terminal_tools = {
+            "read_canvas_skill",
+            "read_canvas_skill_file",
+            "propose_canvas_patch",
+            "execute_canvas_patch",
+        }
+        call_records: list[tuple[str, str]] = []
         for call in calls:
-            await progress("tool_started", tool_progress_message(call))
+            tool_name = str(call.get("name") or "unknown")
+            tool_call_id = str(call.get("id") or f"generated-{uuid.uuid4().hex}")
+            if not call.get("id"):
+                call["id"] = tool_call_id
+            call_records.append((tool_name, tool_call_id))
+            await emit(tool_started(tool_name=tool_name, tool_call_id=tool_call_id))
         try:
             result = await planning_tool_node.ainvoke(state)
         except Exception:
-            for call in calls:
-                await progress("tool_failed",
-                               f"工具 {call.get('name') or 'unknown'} 执行失败")
+            for tool_name, tool_call_id in call_records:
+                await emit(tool_failed(tool_name=tool_name, tool_call_id=tool_call_id))
             raise
+        for tool_name, tool_call_id in call_records:
+            await emit(tool_completed(
+                tool_name=tool_name,
+                tool_call_id=tool_call_id,
+                visible=tool_name not in domain_terminal_tools,
+            ))
         return result
 
     async def confirmation_node(state: CanvasAgentState) -> dict[str, Any]:
-        await progress("confirmation", "计划已生成，等待用户确认…")
+        await emit(progress_event("confirmation", "计划已生成，等待用户确认…"))
         decision = interrupt({
             "type": "canvas.confirmation_required",
             "run_id": run_id
@@ -117,7 +121,7 @@ def create_canvas_agent(
         authorized_node_ids = list(
             decision.get("authorized_node_ids") or []) if isinstance(
                 decision, dict) else []
-        await progress("confirmation", "用户已确认，继续执行…")
+        await emit(progress_event("confirmation", "用户已确认，继续执行…"))
         call_id = f"execute-{run_id}-{plan_version}"
         return {
             "confirmed":
@@ -143,7 +147,7 @@ def create_canvas_agent(
     async def execute_node(state: CanvasAgentState) -> dict[str, Any]:
         if execution_tool_node is None:
             raise RuntimeError("Canvas execution boundary is not configured")
-        await progress("execution", "正在执行已确认的画布变更…")
+        await emit(progress_event("execution", "正在执行已确认的画布变更…"))
         return await execution_tool_node.ainvoke(state)
 
     async def dispatch_tasks_node(state: CanvasAgentState) -> dict[str, Any]:
@@ -152,7 +156,7 @@ def create_canvas_agent(
             raise RuntimeError(
                 "Canvas patch execution did not return a result")
         if dispatch_tasks is None: return {"tasks": []}
-        await progress("execution", "画布变更已应用，正在提交生成任务…")
+        await emit(progress_event("execution", "画布变更已应用，正在提交生成任务…"))
         tasks = await dispatch_tasks(result)
         return {"tasks": tasks}
 

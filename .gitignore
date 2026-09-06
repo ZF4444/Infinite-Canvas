@@ -11,7 +11,7 @@ __pycache__/
 
 **/.env
 **/.env.lock
-assets/
+/assets/
 data/
 docs/*
 backups/

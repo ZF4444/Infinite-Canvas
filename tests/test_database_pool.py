@@ -89,3 +89,15 @@ def test_sync_database_bridge_rejects_event_loop_calls(monkeypatch):
                 pass
 
     asyncio.run(scenario())
+
+
+def test_sync_database_bridge_closes_coroutine_when_pool_is_not_started(monkeypatch):
+    monkeypatch.setattr(database, "_DATABASE_LOOP", None)
+
+    async def probe():
+        return None
+
+    coroutine = probe()
+    with pytest.raises(RuntimeError, match="异步连接池尚未启动"):
+        database._run_on_database_loop(coroutine)
+    assert coroutine.cr_frame is None

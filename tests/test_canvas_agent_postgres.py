@@ -77,6 +77,96 @@ def test_agent_store_persists_versioned_business_facts():
         finally: await close_database_pool()
     asyncio.run(run())
 
+
+def test_expired_tool_group_is_closed_once_across_concurrent_reconcilers():
+    from concurrent.futures import ThreadPoolExecutor
+
+    from app.services.business_metadata import initialize_business_metadata, json_value, metadata_connection
+    from app.services.canvas_agent.event_bus import AgentEventService, scan_open_tool_groups_sync
+    from app.services.canvas_agent.event_factory import tool_started, tool_timed_out
+
+    def run_sync():
+        initialize_business_metadata()
+        uid = "event-timeout-owner-" + uuid.uuid4().hex[:12]
+        canvas_id = "event-timeout-canvas-" + uuid.uuid4().hex[:12]
+        run_id = "event-timeout-run-" + uuid.uuid4().hex[:12]
+        now = 1_000_000_000_000
+        tool_call_id = "call-" + uuid.uuid4().hex
+        try:
+            with metadata_connection() as conn, conn.transaction(), conn.cursor() as cur:
+                cur.execute("INSERT INTO users(id,username,created_at) VALUES(%s,%s,%s)", (uid, uid, now))
+                cur.execute(
+                    "INSERT INTO smart_canvases(id,user_id,title,created_at,updated_at,version,viewport_json) VALUES(%s,%s,%s,%s,%s,1,%s)",
+                    (canvas_id, uid, "event timeout", now, now, json_value({"viewport": {}, "payload": {}})),
+                )
+                cur.execute("INSERT INTO canvas_agent_runs(id,user_id,canvas_id,created_at,updated_at) VALUES(%s,%s,%s,%s,%s)", (run_id, uid, canvas_id, now, now))
+
+            started = tool_started(tool_name="read_canvas_skill", tool_call_id=tool_call_id)
+            event = AgentEventService.append_sync(
+                user_id=uid,
+                run_id=run_id,
+                event_type=started.event_type,
+                payload=started.payload,
+                phase=started.phase,
+                severity=started.severity,
+            )
+            # Make this group older than the scanner threshold without sleeping.
+            stale_at = now - 60_000
+            with metadata_connection() as conn, conn.transaction(), conn.cursor() as cur:
+                cur.execute("UPDATE canvas_agent_events SET created_at=%s WHERE id=%s", (stale_at, event["id"]))
+
+            open_count, expired = scan_open_tool_groups_sync(30)
+            group = next(item for item in expired if item["run_id"] == run_id)
+            assert open_count >= 1
+            assert group["tool_call_id"] == tool_call_id
+
+            timeout = tool_timed_out(tool_name="read_canvas_skill", tool_call_id=tool_call_id)
+
+            def close_once() -> bool:
+                return AgentEventService.close_expired_tool_group_sync(
+                    user_id=uid,
+                    run_id=run_id,
+                    tool_call_id=tool_call_id,
+                    started_at=int(group["created_at"]),
+                    event_type=timeout.event_type,
+                    payload=timeout.payload,
+                    phase=timeout.phase,
+                    severity=timeout.severity,
+                )
+
+            with ThreadPoolExecutor(max_workers=2) as executor:
+                results = list(executor.map(lambda _: close_once(), range(2)))
+            assert results.count(True) == 1
+
+            open_after, expired_after = scan_open_tool_groups_sync(30)
+            assert not any(item["run_id"] == run_id for item in expired_after)
+            with metadata_connection() as conn, conn.cursor() as cur:
+                cur.execute(
+                    "SELECT type,payload_json FROM canvas_agent_events WHERE run_id=%s ORDER BY sequence",
+                    (run_id,),
+                )
+                events = cur.fetchall()
+            timeout_events = [item for item in events if item["type"] == "progress.tool_failed"]
+            assert len(timeout_events) == 1
+            assert timeout_events[0]["payload_json"]["presentation"]["group_id"] == f"tool:{tool_call_id}"
+            assert timeout_events[0]["payload_json"]["timeout"] is True
+            assert open_after >= 0
+        finally:
+            with metadata_connection() as conn, conn.transaction(), conn.cursor() as cur:
+                cur.execute("DELETE FROM users WHERE id=%s", (uid,))
+
+    async def run():
+        from app.core.database import close_database_pool, open_database_pool
+
+        await open_database_pool()
+        try:
+            await asyncio.to_thread(run_sync)
+        finally:
+            await close_database_pool()
+
+    asyncio.run(run())
+
+
 def test_artifact_versions_propagate_stale_to_downstream():
     from app.core.database import close_database_pool, open_database_pool
     from app.services.business_metadata import initialize_business_metadata, json_value, metadata_connection

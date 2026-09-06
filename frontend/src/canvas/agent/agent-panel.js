@@ -24,8 +24,8 @@
     messages.append($('canvasAgentPlan'), $('canvasAgentArtifacts'));
     messages.addEventListener('scroll',()=>{if(!rebuildingMessages)messageFollow=isNearMessageBottom(messages);});
   };
-  const conversationEventTypes = new Set(['progress.context','progress.agent','progress.tool_started','progress.tool_failed','skill.loaded','skill.resource_loaded']);
-  const isConversationEvent = type => conversationEventTypes.has(String(type || '').replace(/^agent\./,''));
+  const eventProjector = () => window.CanvasAgentEventProjector;
+  const isConversationEvent = (type, data) => eventProjector()?.isConversationEvent?.({type, payload:data}) || false;
   const escapeRegExp = value => String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   const renderMessageContent = (body, content) => {
     const candidates = (window.CanvasAgentBridge.nodeMentionCandidates?.() || []).sort((a,b)=>b.label.length-a.label.length || b.id.length-a.id.length);
@@ -116,15 +116,9 @@
     if (kind === 'user') { const time=document.createElement('div'); time.className='canvas-agent-message-time'; time.textContent=timeLabel(); el.appendChild(time); }
     const box=$('canvasAgentMessages'); box.appendChild(el); if(!rebuildingMessages && messageFollow) box.scrollTop=box.scrollHeight;
   };
-  const liveEventText = (type, data, fallback='') => {
+  const liveEventText = (_type, data, fallback='') => {
     const message = String(data?.message || fallback || '').trim();
-    if (message) return message.replace(/…$/, '');
-    if (type === 'skill.loaded') return `已读取 ${data?.skill?.name || 'Skill'} 技能`;
-    if (type === 'skill.resource_loaded') return `已读取 ${data?.resource?.path || 'Skill 资源'}`;
-    if (type === 'task.queued') return '生成任务已提交';
-    if (type === 'task.succeeded') return '生成任务已完成';
-    if (type === 'task.failed' || type === 'task.timed_out') return data?.error || '生成任务失败';
-    return type || '处理中';
+    return message ? message.replace(/…$/, '') : '处理中';
   };
   const liveEventIcon = type => {
     if (type.includes('tool') || type === 'task.succeeded' || type === 'task.failed') return 'terminal-square';
@@ -183,7 +177,11 @@
   const liveEvent = event => {
     const item={sequence:Number(event?.sequence || 0),type:String(event?.type || 'status').replace(/^agent\./,''),data:event?.data || {},message:event?.message || ''};
     if(item.sequence && liveEvents.some(existing=>existing.sequence===item.sequence)) return;
-    liveEvents.push(item); liveEvents=liveEvents.slice(-80);
+    const projection=eventProjector()?.project?.({type:item.type,payload:item.data});
+    const groupId=projection?.progress?.groupId;
+    const existingIndex=groupId ? liveEvents.findIndex(existing => eventProjector()?.project?.({type:existing.type,payload:existing.data})?.progress?.groupId===groupId) : -1;
+    if(existingIndex>=0) liveEvents[existingIndex]=item; else liveEvents.push(item);
+    liveEvents=liveEvents.slice(-80);
     lastLiveStatus=liveEventText(item.type,item.data,item.message);
     renderLiveStatus();
   };
@@ -284,9 +282,11 @@
       const live={sequence:Number(event.sequence)||0,type,data:payload,message:payload.message||''};
       if(type==='plan.confirmed')planStates.set(planDecisionKey(run.id,payload.plan_version),'已确认');
       if(type==='plan.rejected')planStates.set(planDecisionKey(run.id,payload.plan_version),'已取消');
-      if(isConversationEvent(type)) timeline.push({kind:'event',at:Number(event.created_at)||0,item:live});
+      const projection=eventProjector()?.project?.({type,payload});
+      const historyVisible=projection?.progress ? projection.progress.history : true;
+      if(historyVisible && isConversationEvent(type,payload)) timeline.push({kind:'event',at:Number(event.created_at)||0,item:live});
       if(type==='plan.created' && payload.plan) timeline.push({kind:'plan',at:Number(event.created_at)||0,item:{version:payload.plan_version,content_json:payload.plan}});
-      if(type==='skill.loaded'){const skill=payload.skill||{};if(skill.name)loaded.set(`${skill.name}:${skill.version||''}`,{name:skill.name,version:skill.version||''});}
+      if(projection?.skillBadge?.name) loaded.set(`${projection.skillBadge.name}:${projection.skillBadge.version||''}`,projection.skillBadge);
     });
     timeline.sort((a,b)=>a.at-b.at || (a.kind==='event' ? -1 : 1));
     const activePlan=run.status==='awaiting_confirmation'&&!confirmationAccepted; let pending=[]; let turnOpen=false; let planRendered=false; const renderedPlanVersions=new Set();

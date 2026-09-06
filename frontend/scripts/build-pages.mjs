@@ -47,7 +47,8 @@ const PAGES = [
       'canvas-sync.js', 'prompt-templates.js', 'prompt-task-rules.js', 'mention-composer.js', 'canvas-render.js',
       'image-editor.js', 'asset-library.js', 'generation-settings.js',
       'agent/agent-state.js', 'agent/agent-bridge.js', 'agent/agent-client.js',
-      'agent/agent-plan.js', 'agent/agent-artifacts.js', 'agent/agent-events.js', 'agent/agent-panel.js',
+      'agent/agent-plan.js', 'agent/agent-artifacts.js', 'agent/agent-event-projector.js',
+      'agent/agent-events.js', 'agent/agent-panel.js',
     ],
   },
   {

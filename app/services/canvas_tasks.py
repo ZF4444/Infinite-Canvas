@@ -246,7 +246,23 @@ async def _emit_agent_task_event(task: dict[str, Any]) -> None:
     try:
         from app.services.canvas_agent.events import emit_agent_event
         from app.services.canvas_agent.reliability import classify_failure
-        await emit_agent_event(user_id, run_id, event_type, {"task_id": task.get("id"), "node_id": task.get("agent_node_id"), "status": status, "error": task.get("error") or "", "failure_category": classify_failure(task.get("error") or "") if status in {"failed", "timed_out"} else "", "result": task.get("result") if status == "succeeded" else None})
+        from app.services.canvas_agent.event_factory import task_lifecycle
+        task_event = task_lifecycle(status, {
+            "task_id": task.get("id"),
+            "node_id": task.get("agent_node_id"),
+            "status": status,
+            "error": task.get("error") or "",
+            "failure_category": classify_failure(task.get("error") or "") if status in {"failed", "timed_out"} else "",
+            "result": task.get("result") if status == "succeeded" else None,
+        })
+        await emit_agent_event(
+            user_id,
+            run_id,
+            task_event.event_type,
+            task_event.payload,
+            phase=task_event.phase,
+            severity=task_event.severity,
+        )
     except Exception:
         # Task completion remains durable in Redis, but a missing projection
         # must be visible: otherwise generated media never reaches its node.

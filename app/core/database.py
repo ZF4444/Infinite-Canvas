@@ -234,6 +234,11 @@ async def database_connection(*, max_attempts: int | None = None):
 def _run_on_database_loop(coro):
     loop = _DATABASE_LOOP
     if loop is None or not loop.is_running():
+        # The caller has already created a coroutine (for example,
+        # ``context.__aenter__()``). Close it before rejecting the sync bridge
+        # so a failed availability probe does not leak an un-awaited coroutine.
+        if hasattr(coro, "close"):
+            coro.close()
         raise RuntimeError("PostgreSQL 异步连接池尚未启动")
     try:
         running_loop = asyncio.get_running_loop()

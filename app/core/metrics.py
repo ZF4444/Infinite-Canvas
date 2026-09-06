@@ -207,6 +207,26 @@ AGENT_EVENT_PUBLISHES = Counter(
     ("result",),
     registry=REGISTRY,
 )
+AGENT_EVENT_PRESENTATION_INVALID = Counter(
+    "mediaforge_canvas_agent_event_presentation_invalid_total",
+    "Canvas Agent events whose presentation metadata was dropped during validation.",
+    registry=REGISTRY,
+)
+AGENT_EVENT_TOOL_GROUP_TIMEOUTS = Counter(
+    "mediaforge_canvas_agent_tool_group_timeouts_total",
+    "Canvas Agent tool progress groups force-closed after exceeding the timeout.",
+    registry=REGISTRY,
+)
+AGENT_EVENT_PRESENTATION_UNKNOWN_TARGETS = Counter(
+    "mediaforge_canvas_agent_event_presentation_unknown_targets_total",
+    "Unknown Canvas Agent presentation targets reported by clients.",
+    registry=REGISTRY,
+)
+AGENT_EVENT_OPEN_TOOL_GROUPS = Gauge(
+    "mediaforge_canvas_agent_open_tool_groups",
+    "Currently open Canvas Agent tool progress groups observed by the scanner.",
+    registry=REGISTRY,
+)
 
 
 def update_pool_stats(stats: dict) -> None:

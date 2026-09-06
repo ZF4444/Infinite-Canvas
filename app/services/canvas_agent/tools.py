@@ -15,6 +15,7 @@ from .policy import assess_patch
 from .adapter import semantic_plan_to_patch
 from .store import latest_artifact, save_plan
 from .skills import read_skill_document, read_skill_resource
+from .event_factory import EventSpec, skill_loaded, skill_rejected, skill_resource_loaded, skill_resource_rejected
 
 
 def submit_semantic_plan(plan: dict[str, Any]) -> SemanticPlan:
@@ -26,7 +27,7 @@ def build_canvas_tools(*, user_id: str, run_id: str, canvas_id: str,
                        execute_patch: Callable[[int, list[str]], Awaitable[dict[str, Any]]] | None = None,
                        include_execution: bool = False,
                        registry: CapabilityRegistry | None = None,
-                       emit_skill_event: Callable[[str, dict[str, Any]], Awaitable[Any]] | None = None) -> list[StructuredTool]:
+                       emit_skill_event: Callable[[EventSpec], Awaitable[Any]] | None = None) -> list[StructuredTool]:
     """Create tools scoped to one authenticated Agent Run."""
     def agent_display_schema(schema: dict[str, Any], connection_id: str, model: str) -> dict[str, Any]:
         from app.ai.database_repository import DatabaseAIRepository
@@ -80,9 +81,26 @@ def build_canvas_tools(*, user_id: str, run_id: str, canvas_id: str,
         """Read the latest artifact owned by this Agent Run."""
         return await asyncio.to_thread(latest_artifact, user_id, run_id, artifact_type)
 
-    async def skill_event(event_type: str, payload: dict[str, Any]) -> None:
+    async def skill_event(spec: EventSpec) -> None:
         if emit_skill_event:
-            await emit_skill_event(event_type, payload)
+            # Keep third-party/test integrations on the pre-contract
+            # ``(event_type, payload)`` callback alive during rollout. Inspect
+            # the callback before invocation so an internal TypeError is not
+            # mistaken for an old callback signature.
+            import inspect
+            try:
+                parameters = inspect.signature(emit_skill_event).parameters.values()
+                positional = [item for item in parameters if item.kind in {
+                    inspect.Parameter.POSITIONAL_ONLY,
+                    inspect.Parameter.POSITIONAL_OR_KEYWORD,
+                }]
+                accepts_many = any(item.kind == inspect.Parameter.VAR_POSITIONAL for item in parameters)
+            except (TypeError, ValueError):
+                positional, accepts_many = [], False
+            if accepts_many or len(positional) >= 2:
+                await emit_skill_event(spec.event_type, spec.payload)  # type: ignore[misc]
+            else:
+                await emit_skill_event(spec)
 
     @tool
     async def read_canvas_skill(name: str, runtime: ToolRuntime) -> Command:
@@ -90,13 +108,21 @@ def build_canvas_tools(*, user_id: str, run_id: str, canvas_id: str,
         try:
             document = await asyncio.to_thread(read_skill_document, name)
         except Exception as exc:
-            await skill_event("skill.rejected", {"skill": {"name": str(name)[:64]}, "reason": str(exc)[:500]})
+            await skill_event(skill_rejected(
+                tool_call_id=runtime.tool_call_id,
+                name=str(name)[:64],
+                reason=str(exc),
+            ))
             return Command(update={"messages": [ToolMessage(content=f"Skill 读取被拒绝：{exc}", tool_call_id=runtime.tool_call_id)]})
         loaded = list(runtime.state.get("loaded_skills") or [])
         item = {"name": document.name, "content_sha256": document.content_sha256}
         if item not in loaded:
             loaded.append(item)
-        await skill_event("skill.loaded", {"skill": {"name": document.name, "content_sha256": document.content_sha256}})
+        await skill_event(skill_loaded(
+            tool_call_id=runtime.tool_call_id,
+            name=document.name,
+            content_sha256=document.content_sha256,
+        ))
         return Command(update={
             "loaded_skills": loaded,
             "messages": [ToolMessage(
@@ -124,11 +150,12 @@ def build_canvas_tools(*, user_id: str, run_id: str, canvas_id: str,
         loaded = list((runtime.state if runtime else {}).get("loaded_skills") or [])
         if str(skill_name or "") not in {str(item.get("name") or "") for item in loaded}:
             reason = "必须先读取对应的 Skill 正文"
-            await skill_event("skill.resource_rejected", {
-                "skill": {"name": str(skill_name)[:64]},
-                "resource": {"path": str(path)[:500]},
-                "reason": reason,
-            })
+            await skill_event(skill_resource_rejected(
+                tool_call_id=runtime.tool_call_id if runtime else "",
+                name=str(skill_name)[:64],
+                path=str(path)[:500],
+                reason=reason,
+            ))
             return Command(update={"messages": [ToolMessage(
                 content=f"Skill 资源读取被拒绝：{reason}",
                 tool_call_id=runtime.tool_call_id if runtime else "",
@@ -139,27 +166,30 @@ def build_canvas_tools(*, user_id: str, run_id: str, canvas_id: str,
                 read_skill_resource, skill_name, path, offset=offset, limit=limit,
             )
         except Exception as exc:
-            await skill_event("skill.resource_rejected", {
-                "skill": {"name": str(skill_name)[:64]},
-                "resource": {"path": str(path)[:500]},
-                "reason": str(exc)[:500],
-            })
+            await skill_event(skill_resource_rejected(
+                tool_call_id=runtime.tool_call_id if runtime else "",
+                name=str(skill_name)[:64],
+                path=str(path)[:500],
+                reason=str(exc),
+            ))
             return Command(update={"messages": [ToolMessage(
                 content=f"Skill 资源读取被拒绝：{exc}",
                 tool_call_id=runtime.tool_call_id if runtime else "",
                 name="read_canvas_skill_file",
             )]})
-        await skill_event("skill.resource_loaded", {
-            "skill": {"name": resource.name},
-            "resource": {
-                "path": resource.path,
-                "content_sha256": resource.content_sha256,
-                "start_line": resource.start_line,
-                "end_line": resource.end_line,
-                "total_lines": resource.total_lines,
-                "truncated": resource.truncated,
-            },
-        })
+        resource_metadata = {
+            "path": resource.path,
+            "content_sha256": resource.content_sha256,
+            "start_line": resource.start_line,
+            "end_line": resource.end_line,
+            "total_lines": resource.total_lines,
+            "truncated": resource.truncated,
+        }
+        await skill_event(skill_resource_loaded(
+            tool_call_id=runtime.tool_call_id if runtime else "",
+            name=resource.name,
+            resource=resource_metadata,
+        ))
         continuation = (
             f"\n\n[内容未完；使用 offset={resource.end_line + 1} 继续读取。]"
             if resource.truncated else ""

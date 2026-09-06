@@ -1,6 +1,20 @@
 import json
 
-from app.services.canvas_agent.event_types import event_envelope, normalize_event_type, sanitize_payload
+from app.services.canvas_agent.event_factory import (
+    patch_applied,
+    skill_loaded,
+    task_lifecycle,
+    tool_completed,
+    tool_started,
+    tool_timed_out,
+)
+from app.services.canvas_agent.event_types import (
+    event_envelope,
+    normalize_event_type,
+    normalize_presentation_payload,
+    sanitize_payload,
+    validate_presentation_payload,
+)
 
 
 def test_event_contract_rejects_unknown_types_and_redacts_secrets():
@@ -19,6 +33,98 @@ def test_event_envelope_has_stable_client_fields():
     assert envelope["schema_version"] == 1
     assert envelope["run_id"] == "run"
     assert envelope["payload"]["message"] == "working"
+
+
+def test_presentation_contract_keeps_tool_group_and_closed_states_consistent():
+    started = tool_started(tool_name="read_canvas_skill", tool_call_id="call-1")
+    assert started.payload["presentation"] == {
+        "targets": ["conversation_progress"],
+        "group_id": "tool:call-1",
+        "state": "started",
+    }
+    loaded = skill_loaded(tool_call_id="call-1", name="demo", content_sha256="abc")
+    validate_presentation_payload(loaded.payload)
+    assert loaded.payload["presentation"]["state"] == "succeeded"
+    assert loaded.payload["presentation"]["group_id"] == "tool:call-1"
+    audit = tool_completed(tool_name="read_canvas_skill", tool_call_id="call-1", visible=False)
+    assert "presentation" not in audit.payload
+
+
+def test_task_and_patch_events_declare_canvas_refresh_projection():
+    task = task_lifecycle("succeeded", {"task_id": "task-1", "node_id": "node-1", "result": {}})
+    assert task.payload["presentation"]["targets"] == ["canvas_refresh"]
+    patch = patch_applied({"version": 3})
+    assert patch.payload["presentation"]["targets"] == ["canvas_refresh"]
+    cancelled = task_lifecycle("interrupted", {"task_id": "task-1"})
+    assert cancelled.event_type == "task.cancelled"
+    assert cancelled.payload["status"] == "cancelled"
+
+
+def test_invalid_presentation_degrades_without_breaking_event_payload():
+    payload = {"message": "working", "presentation": {"targets": ["run_javascript"]}}
+    normalize_presentation_payload(payload)
+    assert "presentation" not in payload
+
+
+def test_timed_out_tool_event_closes_the_original_group():
+    timeout = tool_timed_out(tool_name="read_canvas_skill", tool_call_id="call-timeout")
+    validate_presentation_payload(timeout.payload)
+    assert timeout.event_type == "progress.tool_failed"
+    assert timeout.payload["timeout"] is True
+    assert timeout.payload["presentation"]["group_id"] == "tool:call-timeout"
+    assert timeout.payload["presentation"]["state"] == "failed"
+
+
+def test_expired_tool_group_reconciliation_only_counts_atomic_closures(monkeypatch):
+    import asyncio
+    from app.services.canvas_agent import event_bus
+
+    group = {
+        "user_id": "user-1",
+        "run_id": "run-1",
+        "tool_call_id": "call-1",
+        "tool_name": "read_canvas_skill",
+        "created_at": 100,
+    }
+    closed = []
+    monkeypatch.setattr(event_bus, "scan_open_tool_groups_sync", lambda _timeout: (1, [group]))
+    monkeypatch.setattr(
+        event_bus.AgentEventService,
+        "close_expired_tool_group_sync",
+        lambda **kwargs: closed.append(kwargs) or True,
+    )
+
+    assert asyncio.run(event_bus.reconcile_expired_tool_groups()) == 1
+    assert closed[0]["run_id"] == "run-1"
+    assert closed[0]["payload"]["timeout"] is True
+    assert closed[0]["payload"]["presentation"]["group_id"] == "tool:call-1"
+
+
+def test_m4_event_observability_metrics_are_exported():
+    from app.core.metrics import render_metrics
+
+    metrics = render_metrics()
+    assert b"mediaforge_canvas_agent_event_presentation_invalid_total" in metrics
+    assert b"mediaforge_canvas_agent_event_presentation_unknown_targets_total" in metrics
+    assert b"mediaforge_canvas_agent_tool_group_timeouts_total" in metrics
+    assert b"mediaforge_canvas_agent_open_tool_groups" in metrics
+
+
+def test_unknown_presentation_target_reports_a_diagnostic_without_failing_client(monkeypatch):
+    import asyncio
+
+    from app.core.metrics import AGENT_EVENT_PRESENTATION_UNKNOWN_TARGETS
+    from app.routers import canvas_agent
+
+    class Request:
+        async def json(self):
+            return {"target": "future_surface"}
+
+    monkeypatch.setattr(canvas_agent, "_user", lambda *_args: "user-1")
+    before = AGENT_EVENT_PRESENTATION_UNKNOWN_TARGETS._value.get()
+    response = asyncio.run(canvas_agent.canvas_agent_presentation_diagnostics(Request()))
+    assert response.status_code == 204
+    assert AGENT_EVENT_PRESENTATION_UNKNOWN_TARGETS._value.get() == before + 1
 
 
 def test_worker_auth_context_is_available_in_to_thread():

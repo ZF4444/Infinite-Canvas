@@ -23,28 +23,40 @@
   }
   function applyEvent(event) {
     if (!event || Number(event.sequence) <= state.sequence) return;
-    state.sequence = Number(event.sequence); const type = String(event.type || '').replace(/^agent\./, ''); const data = event.payload || event.payload_json || event.data || {};
+    state.sequence = Number(event.sequence);
+    const projector = window.CanvasAgentEventProjector;
+    const type = projector?.normalizeType?.(event.type) || String(event.type || '').replace(/^agent\./, '');
+    const data = projector?.payloadOf?.(event) || event.payload || event.payload_json || event.data || {};
+    const projection = projector?.project?.({ ...event, type, payload: data }) || {};
     state.lastEvent = event;
-    if (window.CanvasAgentPanel.isConversationEvent?.(type)) window.CanvasAgentPanel.liveEvent?.({sequence:event.sequence,type,data});
+    if (projection.progress) {
+      window.CanvasAgentPanel.liveEvent?.({
+        sequence: event.sequence,
+        type,
+        data,
+        message: projection.progress.message,
+      });
+    }
     if (['operation.succeeded','operation.failed','operation.cancelled'].includes(type)) state.operationId = '';
-    if (type.startsWith('progress')) window.CanvasAgentPanel.status(data.message || '处理中…');
-    else if (type.startsWith('operation.') && data.message) window.CanvasAgentPanel.status(data.message);
-    else window.CanvasAgentPanel.status(type);
-    if (type === 'task.queued') window.CanvasAgentBridge.startNodeTask?.(data);
-    if (['task.succeeded','task.failed','task.cancelled','task.timed_out'].includes(type)) window.CanvasAgentBridge.finishNodeTask?.(data);
+    if (data.message) window.CanvasAgentPanel.status(data.message);
+    else if (type.startsWith('operation.')) window.CanvasAgentPanel.status(type);
+    else window.CanvasAgentPanel.status(type || '处理中');
     if (type === 'message.replied' && data.reply) {
       window.CanvasAgentPanel.message(data.reply, 'agent', data.media_references || []);
     }
     if (type === 'plan.created' && data.plan) { window.CanvasAgentPanel.resetConfirmationState?.(); window.CanvasAgentPlan.render({version:data.plan_version, content_json:data.plan}); }
     if (type === 'operation.failed') window.CanvasAgentPanel.confirmationFailed?.();
-    if (type === 'task.succeeded') window.CanvasAgentPanel.refreshCurrentRun?.();
-    if (type === 'skill.loaded' && data.skill?.name) {
-      const key = `${data.skill.name}:${data.skill.version || ''}`;
-      if (!state.skills.some(skill => `${skill.name}:${skill.version || ''}` === key)) state.skills.push({name:data.skill.name,version:data.skill.version || ''});
+    if (projection.skillBadge?.name) {
+      const badge = projection.skillBadge;
+      const key = `${badge.name}:${badge.version || ''}`;
+      if (!state.skills.some(skill => `${skill.name}:${skill.version || ''}` === key)) state.skills.push(badge);
       window.CanvasAgentPanel.renderSkills();
     }
-    if ((type.startsWith('task.') && !['task.succeeded','task.failed','task.cancelled','task.timed_out'].includes(type)) || type === 'patch.applied') window.CanvasAgentBridge.refreshCanvas();
-    if (['run.failed','run.blocked','run.cancelled'].includes(type)) window.CanvasAgentPanel.system(data.error || data.reason || type);
+    if (projection.refreshCanvas) window.CanvasAgentBridge.refreshCanvas?.(projection.refreshCanvas);
+    if (projection.notice) window.CanvasAgentPanel.system(projection.notice.message);
+    if (['run.failed','run.blocked','run.cancelled'].includes(type) && !projection.notice) {
+      window.CanvasAgentPanel.system(data.error || data.reason || type);
+    }
   }
   async function catchUp() {
     if (!state.runId) return;

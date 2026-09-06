@@ -63,3 +63,39 @@ groups:
         annotations:
           summary: "MediaForge AI provider failures increased"
           description: "Provider {{ $labels.provider }} has at least 5 failed or rejected {{ $labels.operation }} operations in 5 minutes."
+
+      - alert: MediaForgeCanvasAgentPresentationContractFailure
+        expr: increase(mediaforge_canvas_agent_event_presentation_invalid_total[15m]) > 0
+        for: 0m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Canvas Agent emitted an invalid presentation contract"
+          description: "At least one Canvas Agent event presentation was rejected during the last 15 minutes."
+
+      - alert: MediaForgeCanvasAgentUnknownPresentationTarget
+        expr: increase(mediaforge_canvas_agent_event_presentation_unknown_targets_total[15m]) > 0
+        for: 0m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Canvas Agent client received an unknown presentation target"
+          description: "A browser reported an event target not supported by its projector during the last 15 minutes."
+
+      - alert: MediaForgeCanvasAgentOpenToolGroups
+        expr: mediaforge_canvas_agent_open_tool_groups > 0
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Canvas Agent tool progress groups are not closing"
+          description: "At least one tool progress group has remained open for more than 10 minutes."
+
+      - alert: MediaForgeCanvasAgentToolGroupTimeout
+        expr: increase(mediaforge_canvas_agent_tool_group_timeouts_total[15m]) > 0
+        for: 0m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Canvas Agent force-closed a timed-out tool progress group"
+          description: "The event reconciler emitted a failure terminal event for a stale tool group in the last 15 minutes."

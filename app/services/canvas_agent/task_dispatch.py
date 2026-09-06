@@ -121,8 +121,9 @@ async def submit_run_requests(user_id: str, canvas_id: str, run_id: str, request
         # Queue submission is the first authoritative lifecycle transition.
         # Project it immediately so the canvas node shows a pending state
         # before a worker claims the task and begins image generation.
+        from .event_factory import task_lifecycle
         from .events import emit_agent_event
-        await emit_agent_event(user_id, run_id, "task.queued", {
+        task_event = task_lifecycle("queued", {
             "task_id": task_id,
             "node_id": node["id"],
             "status": "queued",
@@ -132,6 +133,14 @@ async def submit_run_requests(user_id: str, canvas_id: str, run_id: str, request
             "kind": "image",
             "expected_count": request["n"],
         })
+        await emit_agent_event(
+            user_id,
+            run_id,
+            task_event.event_type,
+            task_event.payload,
+            phase=task_event.phase,
+            severity=task_event.severity,
+        )
         # The queued projection must be committed before workers can claim the
         # task. Otherwise a fast success can be overwritten by a late queued
         # event and leave the node permanently disabled.

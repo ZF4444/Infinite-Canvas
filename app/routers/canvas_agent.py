@@ -1,40 +1,134 @@
 """Fast Track Canvas Agent API."""
 from __future__ import annotations
+
 import asyncio
 import json
 import time
-from fastapi import APIRouter, Depends, Header, HTTPException, Request
-from fastapi.responses import JSONResponse
-from langchain_core.messages import HumanMessage, SystemMessage
 
-from app.core.auth import safe_user_id
+from fastapi import APIRouter, Depends, Header, HTTPException, Request
+from fastapi.responses import JSONResponse, Response
+from langchain_core.messages import HumanMessage, SystemMessage
+from langgraph.types import Command
+
+from app.config import CANVAS_TASK_TIMEOUT_SECONDS
+from app.core.access_control import has_page_access
+from app.core.auth import current_user_id, safe_user_id
+from app.core.logging import audit_event, get_logger
+from app.core.metrics import AGENT_EVENT_PRESENTATION_UNKNOWN_TARGETS, AGENT_FAILURES, AGENT_OPERATION_SECONDS, AGENT_RUNS
 from app.core.utils import now_ms
 from app.core.ws import manager
-from app.models import CanvasAgentAnswerRequest, CanvasAgentConfirmRequest, CanvasAgentMessageRequest, CanvasAgentRedoRequest, CanvasAgentRetryRequest, CanvasAgentReviewRequest, CanvasAgentRunCreateRequest, CanvasArtifactAdvanceRequest, CanvasArtifactStatusRequest, CanvasArtifactUpsertRequest, CanvasCostEstimateRequest, CanvasOrchestrationRequest, CanvasProjectAssetShareRequest, CanvasPromptCompileRequest, CanvasPromptPackCompileRequest, CanvasPromptPackGenerateRequest, CanvasTemplateCreateRequest, CanvasTemplateInstantiateRequest
+from app.models import (
+    CanvasAgentAnswerRequest,
+    CanvasAgentConfirmRequest,
+    CanvasAgentMessageRequest,
+    CanvasAgentRedoRequest,
+    CanvasAgentRetryRequest,
+    CanvasAgentReviewRequest,
+    CanvasAgentRunCreateRequest,
+    CanvasArtifactAdvanceRequest,
+    CanvasArtifactStatusRequest,
+    CanvasArtifactUpsertRequest,
+    CanvasCostEstimateRequest,
+    CanvasOrchestrationRequest,
+    CanvasProjectAssetShareRequest,
+    CanvasPromptCompileRequest,
+    CanvasPromptPackCompileRequest,
+    CanvasPromptPackGenerateRequest,
+    CanvasTemplateCreateRequest,
+    CanvasTemplateInstantiateRequest,
+)
 from app.models.canvas_agent import SemanticPlan
 from app.services.business_metadata import load_canvas_payload
 from app.services.canvas_agent.adapter import semantic_plan_to_patch
-from app.services.canvas_agent.context import build_canvas_context
-from app.services.canvas_agent.events import emit_agent_event
-from app.services.canvas_agent.model_resolver import CanvasAgentUpstreamError, resolve_canvas_agent_model
-from app.services.canvas_agent.planner import run_canvas_agent
-from langgraph.types import Command
+from app.services.canvas_agent.artifacts import (
+    ARTIFACT_STAGES,
+    compile_prompt,
+    normalize_anchors,
+    validate_stage,
+)
 from app.services.canvas_agent.checkpoint import create_async_checkpointer
-from app.services.canvas_agent.reliability import DEFAULT_RUN_LIMITS, canvas_structure_fingerprint, classify_failure, enforce_plan_limits
-from app.config import CANVAS_TASK_TIMEOUT_SECONDS
-from app.core.logging import audit_event, get_logger
-from app.core.metrics import AGENT_RUNS, AGENT_OPERATION_SECONDS, AGENT_FAILURES
-from app.services.canvas_agent.store import append_message, create_run, create_template, delete_run, get_artifact, get_run, get_template, latest_plan, list_artifacts, list_events, list_messages, list_operations, list_project_assets, list_runs, list_templates, rename_run, request_run_command_cancellation, replace_plan_content, save_artifact, save_plan, set_artifact_status, set_plan_status, share_project_asset, submit_command, update_run
-from app.services.canvas_agent.artifacts import ARTIFACT_STAGES, compile_prompt, normalize_anchors, validate_stage
-from app.services.canvas_agent.skills import get_enabled_skill, list_enabled_skill_summaries, read_skill
+from app.services.canvas_agent.context import build_canvas_context
 from app.services.canvas_agent.doc_chain import stage_sources, validate_stage_sources
-from app.services.canvas_agent.evaluation import evaluate_artifact_quality, record_evaluation
-from app.services.canvas_agent.orchestration import build_specialist_plan, enforce_budget, estimate_plan_cost
-from app.services.canvas_agent.executor import PatchConflictError, PatchPermissionError, apply_patch_idempotently
+from app.services.canvas_agent.evaluation import (
+    evaluate_artifact_quality,
+    record_evaluation,
+)
+from app.services.canvas_agent.events import emit_agent_event
+from app.services.canvas_agent.event_factory import EventSpec, patch_applied, progress as progress_event, task_lifecycle
+from app.services.canvas_agent.event_types import PRESENTATION_TARGETS
+from app.services.canvas_agent.executor import (
+    PatchConflictError,
+    PatchPermissionError,
+    apply_patch_idempotently,
+)
+from app.services.canvas_agent.model_resolver import (
+    CanvasAgentUpstreamError,
+    resolve_canvas_agent_model,
+)
+from app.services.canvas_agent.orchestration import (
+    build_specialist_plan,
+    enforce_budget,
+    estimate_plan_cost,
+)
+from app.services.canvas_agent.planner import run_canvas_agent
+from app.services.canvas_agent.reliability import (
+    DEFAULT_RUN_LIMITS,
+    canvas_structure_fingerprint,
+    classify_failure,
+    enforce_plan_limits,
+)
+from app.services.canvas_agent.skills import (
+    get_enabled_skill,
+    list_enabled_skill_summaries,
+    read_skill,
+)
+from app.services.canvas_agent.store import (
+    append_message,
+    create_run,
+    create_template,
+    delete_run,
+    get_artifact,
+    get_run,
+    get_template,
+    latest_plan,
+    list_artifacts,
+    list_events,
+    list_messages,
+    list_operations,
+    list_project_assets,
+    list_runs,
+    list_templates,
+    rename_run,
+    replace_plan_content,
+    request_run_command_cancellation,
+    save_artifact,
+    save_plan,
+    set_artifact_status,
+    set_plan_status,
+    share_project_asset,
+    submit_command,
+    update_run,
+)
 from app.services.canvas_agent.task_dispatch import submit_run_requests
-from app.services.canvas_tasks import enqueue_canvas_task, get_canvas_task, release_canvas_task_dispatch, update_canvas_task
-from app.core.access_control import has_page_access
-from app.core.auth import current_user_id
+from app.services.canvas_tasks import (
+    enqueue_canvas_task,
+    get_canvas_task,
+    release_canvas_task_dispatch,
+    update_canvas_task,
+)
+
+
+async def _emit_event_spec(user_id: str, run_id: str, spec: EventSpec) -> None:
+    """Send one canonical Agent event through the sole persistence boundary."""
+    await emit_agent_event(
+        user_id,
+        run_id,
+        spec.event_type,
+        spec.payload,
+        phase=spec.phase,
+        severity=spec.severity,
+    )
+
 
 def _require_canvas_agent_access() -> str:
     user_id = current_user_id()
@@ -47,6 +141,28 @@ logger = get_logger("canvas_agent")
 
 def _user(request: Request, x_user_id: str) -> str:
     return safe_user_id(x_user_id, request)
+
+
+@router.post("/api/canvas-agent/presentation-diagnostics", status_code=204)
+async def canvas_agent_presentation_diagnostics(request: Request, x_user_id: str = Header(default="")):
+    """Record a client/server presentation-contract version mismatch."""
+    user_id = _user(request, x_user_id)
+    try:
+        body = await request.json()
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        return Response(status_code=204)
+    target = str((body or {}).get("target") or "")[:64] if isinstance(body, dict) else ""
+    if target and target not in PRESENTATION_TARGETS:
+        AGENT_EVENT_PRESENTATION_UNKNOWN_TARGETS.inc()
+        logger.warning(
+            "unknown Canvas Agent presentation target reported by client",
+            extra={
+                "event": "canvas_agent_event_presentation_unknown_target",
+                "user_id": user_id,
+                "target": target,
+            },
+        )
+    return Response(status_code=204)
 
 
 def _can_continue_planning(status: str) -> bool:
@@ -290,7 +406,7 @@ async def _dispatch_approved_canvas_tasks(user_id: str, run_id: str, canvas_id: 
     AGENT_RUNS.labels(mode=run.get("mode", "fast_track"), status="running" if tasks else "completed").inc()
     audit_event("canvas_agent_plan_applied", action="apply_patch", resource_type="canvas_agent_run", resource_id=run_id, result="success", run_id=run_id, canvas_id=canvas_id, operation_id=f"{run_id}:plan:{execution_result.get('plan_version', '')}", request_id="")
     await manager.broadcast_canvas_updated(canvas_id, now_ms(), "", user_id)
-    await emit_agent_event(user_id, run_id, "patch.applied", {key: value for key, value in execution_result.items() if key not in {"plan_goal", "task_limit"}})
+    await _emit_event_spec(user_id, run_id, patch_applied({key: value for key, value in execution_result.items() if key not in {"plan_goal", "task_limit"}}))
     if tasks: await emit_agent_event(user_id, run_id, "tasks.queued", {"tasks": tasks})
     else: await emit_agent_event(user_id, run_id, "run.completed", {"version": execution_result["version"]})
     try:
@@ -352,6 +468,30 @@ async def get_agent_run(run_id: str, request: Request, x_user_id: str = Header(d
     return {"run": run, "messages": messages, "plan": plan, "events": events, "operations": operations, "artifacts": artifacts, "tasks": [task for task in tasks if task]}
 
 async def execute_message_command(user_id: str, run_id: str, payload: CanvasAgentMessageRequest):
+    """Run one planning turn for a new user message and persist the resulting plan.
+
+    Builds the canvas context, resolves the LLM model, invokes the LangGraph
+    agent, and saves the produced ``SemanticPlan`` with status
+    ``awaiting_confirmation``. If the graph returns no plan (e.g. a pure
+    conversational reply), the assistant message is persisted directly and the
+    function returns early without a plan. On upstream provider errors the run
+    is marked ``failed`` and a 503 is raised so the caller can retry; all other
+    exceptions yield 422.
+
+    Args:
+        user_id: Authenticated owner of the run.
+        run_id: Target Canvas Agent run.
+        payload: User message content plus optional model/connection overrides
+            and node selection hints.
+
+    Returns:
+        A dict with ``run``, ``plan`` (when produced), and ``reply``.
+
+    Raises:
+        HTTPException 409: Run status does not allow further planning.
+        HTTPException 503: Upstream LLM provider is unavailable (retryable).
+        HTTPException 422: Planning failed for any other reason.
+    """
     run = await _require_run(user_id, run_id)
     if not _can_continue_planning(run["status"]): raise HTTPException(status_code=409, detail="Run 当前状态不可继续规划")
     if run["status"] == "completed":
@@ -360,7 +500,7 @@ async def execute_message_command(user_id: str, run_id: str, payload: CanvasAgen
         # patch execution, not the lifetime of the conversation.
         run = await asyncio.to_thread(update_run, user_id, run_id, status="planning", phase="planning") or run
     try:
-        await emit_agent_event(user_id, run_id, "progress", {"phase": "context", "message": "正在读取画布上下文…"})
+        await _emit_event_spec(user_id, run_id, progress_event("context", "正在读取画布上下文…"))
         context = await asyncio.to_thread(build_canvas_context, user_id, run["canvas_id"], selected_node_ids=payload.selected_node_ids, mention_node_ids=payload.mention_node_ids, media_references=payload.media_references)
         context["run_id"] = run_id
         context["user_id"] = user_id
@@ -368,11 +508,13 @@ async def execute_message_command(user_id: str, run_id: str, payload: CanvasAgen
         model = await asyncio.to_thread(
             resolve_canvas_agent_model, model=payload.model, model_id=payload.model_id, connection_id=payload.connection_id,
         )
-        async def progress(event_run_id, progress_payload):
-            await emit_agent_event(user_id, event_run_id, "progress", progress_payload)
-        async def emit_skill_event(event_type, event_payload):
-            await emit_agent_event(user_id, run_id, event_type, event_payload, phase="skill")
+        async def progress(event_run_id: str, spec: EventSpec):
+            await _emit_event_spec(user_id, event_run_id, spec)
+        async def emit_skill_event(spec: EventSpec):
+            await _emit_event_spec(user_id, run_id, spec)
         context["emit_skill_event"] = emit_skill_event
+        # Closures passed into the graph so it can mutate the canvas without
+        # importing router symbols directly (avoids circular dependencies).
         async def execute_patch(plan_version: int, authorized_node_ids: list[str]) -> dict:
             return await _execute_approved_canvas_patch(user_id, run_id, run["canvas_id"], plan_version, authorized_node_ids)
         async def dispatch_tasks(execution_result: dict) -> list[dict]:
@@ -381,6 +523,7 @@ async def execute_message_command(user_id: str, run_id: str, payload: CanvasAgen
             graph_result = await run_canvas_agent(model, payload.content, context, checkpointer=checkpointer, emit_progress=progress, execute_patch=execute_patch, dispatch_tasks=dispatch_tasks)
         latest = await asyncio.to_thread(latest_plan, user_id, run_id)
         if not latest:
+            # The graph answered conversationally without producing a plan.
             messages = graph_result.get("messages") or []
             reply = str(getattr(messages[-1], "content", "我可以帮助你处理画布内容。")) if messages else "我可以帮助你处理画布内容。"
             await asyncio.to_thread(append_message, user_id, run_id, "assistant", reply, {"kind": "tool_agent_reply"})
@@ -389,12 +532,16 @@ async def execute_message_command(user_id: str, run_id: str, payload: CanvasAgen
         plan = SemanticPlan.model_validate(latest["content_json"])
         await asyncio.to_thread(update_run, user_id, run_id, metadata_json={"model_thread_started": True, "model_id": payload.model_id, "model_connection_id": payload.connection_id})
         plan_json = plan.model_dump(mode="json")
+        # Attach live canvas node snapshots so the confirmation UI can render
+        # titles and parameters for nodes that don't exist in the canvas yet.
         plan_json = _hydrate_plan_nodes(plan_json, await asyncio.to_thread(load_canvas_payload, user_id, run["canvas_id"]))
         estimate = estimate_plan_cost(plan_json)
         plan_json["execution"]["estimated_cost"] = estimate["estimated_cost"]
         plan = SemanticPlan.model_validate(plan_json)
         enforce_plan_limits(plan_json, (run.get("metadata_json") or {}).get("limits"))
         saved = await asyncio.to_thread(save_plan, user_id, run_id, plan_json, status="awaiting_confirmation")
+        # Snapshot the canvas fingerprint so execute_confirm_command can detect
+        # structural changes between planning and confirmation.
         await asyncio.to_thread(update_run, user_id, run_id, status="awaiting_confirmation", phase="planning", base_canvas_version=context["canvas_version"], step_count=int(run.get("step_count") or 0) + 1, metadata_json={"planned_canvas_fingerprint": canvas_structure_fingerprint(await asyncio.to_thread(load_canvas_payload, user_id, run["canvas_id"]))})
     except CanvasAgentUpstreamError as exc:
         logger.exception(
@@ -422,7 +569,7 @@ async def execute_answer_command(user_id: str, run_id: str, payload: CanvasAgent
     run = await _require_run(user_id, run_id)
     metadata = run.get("metadata_json") or {}
     try:
-        await emit_agent_event(user_id, run_id, "progress", {"phase": "context", "message": "正在恢复画布上下文…"})
+        await _emit_event_spec(user_id, run_id, progress_event("context", "正在恢复画布上下文…"))
         context = await asyncio.to_thread(build_canvas_context, user_id, run["canvas_id"])
         context["run_id"] = run_id
         context["user_id"] = user_id
@@ -431,10 +578,10 @@ async def execute_answer_command(user_id: str, run_id: str, payload: CanvasAgent
         model_id = payload.model_id or metadata.get("model_id", "")
         connection_id = payload.connection_id or metadata.get("model_connection_id", "")
         model = await asyncio.to_thread(resolve_canvas_agent_model, model=model_name, model_id=model_id, connection_id=connection_id)
-        async def progress(event_run_id, progress_payload):
-            await emit_agent_event(user_id, event_run_id, "progress", progress_payload)
-        async def emit_skill_event(event_type, event_payload):
-            await emit_agent_event(user_id, run_id, event_type, event_payload, phase="skill")
+        async def progress(event_run_id: str, spec: EventSpec):
+            await _emit_event_spec(user_id, event_run_id, spec)
+        async def emit_skill_event(spec: EventSpec):
+            await _emit_event_spec(user_id, run_id, spec)
         context["emit_skill_event"] = emit_skill_event
         async def execute_patch(plan_version: int, authorized_node_ids: list[str]) -> dict:
             return await _execute_approved_canvas_patch(user_id, run_id, run["canvas_id"], plan_version, authorized_node_ids)
@@ -493,11 +640,11 @@ async def execute_confirm_command(user_id: str, run_id: str, payload: CanvasAgen
     model = await asyncio.to_thread(
         resolve_canvas_agent_model, model=model_name, model_id=metadata.get("model_id", ""), connection_id=metadata.get("model_connection_id", ""),
     )
-    await emit_agent_event(user_id, run_id, "progress", {"phase": "context", "message": "正在校验当前画布…"})
+    await _emit_event_spec(user_id, run_id, progress_event("context", "正在校验当前画布…"))
     context = await asyncio.to_thread(build_canvas_context, user_id, run["canvas_id"])
     context.update({"run_id": run_id, "user_id": user_id, "canvas_id": run["canvas_id"]})
-    async def progress(event_run_id, progress_payload):
-        await emit_agent_event(user_id, event_run_id, "progress", progress_payload)
+    async def progress(event_run_id: str, spec: EventSpec):
+        await _emit_event_spec(user_id, event_run_id, spec)
     async def execute_patch(plan_version: int, authorized_node_ids: list[str]) -> dict:
         return await _execute_approved_canvas_patch(user_id, run_id, run["canvas_id"], plan_version, authorized_node_ids)
     async def dispatch_tasks(execution_result: dict) -> list[dict]:
@@ -599,7 +746,12 @@ async def retry_agent_task(run_id: str, task_id: str, request: Request, x_user_i
     queued = await update_canvas_task(task_id, expected_status=task.get("status") or "failed", status="queued", error="", attempt=int(task.get("attempt", 1) or 1) + 1, deadline_at=time.time() + CANVAS_TASK_TIMEOUT_SECONDS)
     if not queued: raise HTTPException(status_code=409, detail="任务状态已变化")
     await enqueue_canvas_task(task_id)
-    await emit_agent_event(user_id, run_id, "task.retrying", {"task_id": task_id, "node_id": task.get("agent_node_id")})
+    retry_event = task_lifecycle("retrying", {
+        "task_id": task_id,
+        "node_id": task.get("agent_node_id"),
+        "status": "retrying",
+    })
+    await _emit_event_spec(user_id, run_id, retry_event)
     return {"task": queued}
 
 @router.post("/api/canvas-agent/runs/{run_id}/review")
