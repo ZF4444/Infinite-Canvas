@@ -1,6 +1,7 @@
 """Tool-calling LangGraph runtime for the Canvas Agent."""
 from __future__ import annotations
 
+import json
 import uuid
 from typing import Annotated, Any, Awaitable, Callable, TypedDict
 
@@ -13,7 +14,7 @@ from langgraph.types import interrupt
 
 from .system_prompt import build_canvas_system_prompt
 from .tools import build_canvas_tools
-from .event_factory import EventSpec, progress as progress_event, tool_completed, tool_failed, tool_started
+from .event_factory import EventSpec, progress as progress_event, skill_event_from_artifact, tool_completed, tool_failed, tool_started
 
 
 class CanvasAgentState(TypedDict, total=False):
@@ -29,6 +30,90 @@ class CanvasAgentState(TypedDict, total=False):
     tasks: list[dict[str, Any]]
 
 
+def _result_messages(result: Any) -> list[Any]:
+    """Flatten ToolNode output messages across its two return shapes.
+
+    Tools that return plain values yield a ``{"messages": [...]}`` dict, while
+    tools that return ``Command(update=...)`` yield a list of ``Command``
+    objects whose ``update`` carries the messages. Normalize both so callers
+    can index ToolMessages uniformly.
+    """
+    messages: list[Any] = []
+    if isinstance(result, dict):
+        messages.extend(result.get("messages") or [])
+    elif isinstance(result, (list, tuple)):
+        for item in result:
+            update = getattr(item, "update", None)
+            if isinstance(update, dict):
+                messages.extend(update.get("messages") or [])
+            elif isinstance(item, dict):
+                messages.extend(item.get("messages") or [])
+    return messages
+
+
+def _index_tool_results(result: Any) -> dict[str, Any]:
+    """Map tool_call_id -> parsed ToolMessage content from a ToolNode result."""
+    indexed: dict[str, Any] = {}
+    for message in _result_messages(result):
+        call_id = getattr(message, "tool_call_id", None)
+        if not call_id:
+            continue
+        content = getattr(message, "content", None)
+        if isinstance(content, str):
+            try:
+                content = json.loads(content)
+            except (ValueError, TypeError):
+                pass
+        indexed[str(call_id)] = content
+    return indexed
+
+
+def _index_tool_artifacts(result: Any) -> dict[str, Any]:
+    """Map tool_call_id -> ToolMessage.artifact from a ToolNode result."""
+    indexed: dict[str, Any] = {}
+    for message in _result_messages(result):
+        call_id = getattr(message, "tool_call_id", None)
+        if not call_id:
+            continue
+        indexed[str(call_id)] = getattr(message, "artifact", None)
+    return indexed
+
+
+def _node_display_name(node: dict[str, Any]) -> str:
+    return str(node.get("title") or node.get("name") or node.get("id") or "").strip()
+
+
+def _completion_detail(
+    tool_name: str,
+    args: dict[str, Any],
+    tool_result: Any,
+) -> str:
+    """Describe what a read covered; empty string keeps the default label."""
+    if tool_name != "read_canvas_context":
+        return ""
+    selected_ids = [
+        str(node_id).strip()
+        for node_id in (args.get("selected_node_ids") or [])
+        if str(node_id).strip()
+    ]
+    if not selected_ids:
+        return "已完成画布上下文读取"
+    names: list[str] = []
+    if isinstance(tool_result, dict):
+        by_id = {
+            str(node.get("id")): node
+            for node in (tool_result.get("selected_nodes") or [])
+            if isinstance(node, dict)
+        }
+        for node_id in selected_ids:
+            node = by_id.get(node_id)
+            name = _node_display_name(node) if isinstance(node, dict) else ""
+            names.append(name or node_id)
+    else:
+        names = selected_ids
+    return f"已读取{ '、'.join(names) }节点"
+
+
 def create_canvas_agent(
     *,
     model: Any,
@@ -40,15 +125,12 @@ def create_canvas_agent(
     get_canvas=None,
     execute_patch=None,
     dispatch_tasks=None,
-    tools: list[StructuredTool] | None = None,
-    emit_skill_event: Callable[[EventSpec], Awaitable[Any]]
-    | None = None):
+    tools: list[StructuredTool] | None = None):
     planning_tools = tools or build_canvas_tools(
         user_id=user_id,
         run_id=run_id,
         canvas_id=canvas_id,
         get_canvas=get_canvas,
-        emit_skill_event=emit_skill_event,
     )
     execution_tools = build_canvas_tools(
         user_id=user_id,
@@ -57,7 +139,6 @@ def create_canvas_agent(
         get_canvas=get_canvas,
         execute_patch=execute_patch,
         include_execution=True,
-        emit_skill_event=emit_skill_event,
     ) if execute_patch is not None else []
     planning_tool_node = ToolNode(planning_tools)
     execution_tool_node = ToolNode(
@@ -84,25 +165,36 @@ def create_canvas_agent(
             "propose_canvas_patch",
             "execute_canvas_patch",
         }
-        call_records: list[tuple[str, str]] = []
+        # (tool_name, tool_call_id, args) so completion events can describe
+        # what a read actually covered (e.g. specific nodes vs. full canvas).
+        call_records: list[tuple[str, str, dict[str, Any]]] = []
         for call in calls:
             tool_name = str(call.get("name") or "unknown")
             tool_call_id = str(call.get("id") or f"generated-{uuid.uuid4().hex}")
             if not call.get("id"):
                 call["id"] = tool_call_id
-            call_records.append((tool_name, tool_call_id))
+            args = call.get("args") if isinstance(call.get("args"), dict) else {}
+            call_records.append((tool_name, tool_call_id, args))
             await emit(tool_started(tool_name=tool_name, tool_call_id=tool_call_id))
         try:
             result = await planning_tool_node.ainvoke(state)
         except Exception:
-            for tool_name, tool_call_id in call_records:
+            for tool_name, tool_call_id, _args in call_records:
                 await emit(tool_failed(tool_name=tool_name, tool_call_id=tool_call_id))
             raise
-        for tool_name, tool_call_id in call_records:
+        results_by_call_id = _index_tool_results(result)
+        artifacts_by_call_id = _index_tool_artifacts(result)
+        for tool_name, tool_call_id, args in call_records:
+            skill_spec = skill_event_from_artifact(
+                tool_call_id, artifacts_by_call_id.get(tool_call_id))
+            if skill_spec is not None:
+                await emit(skill_spec)
             await emit(tool_completed(
                 tool_name=tool_name,
                 tool_call_id=tool_call_id,
                 visible=tool_name not in domain_terminal_tools,
+                detail=_completion_detail(
+                    tool_name, args, results_by_call_id.get(tool_call_id)),
             ))
         return result
 

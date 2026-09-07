@@ -175,10 +175,10 @@ def test_skill_resource_read_is_relative_bounded_and_supports_continuation(tmp_p
 def test_skill_tools_write_loaded_state_and_require_level_two_before_level_three():
     events = []
 
-    async def emit(event_type, payload):
-        events.append((event_type, payload))
+    async def emit(event_run_id, spec):
+        events.append(spec.event_type)
 
-    tools = build_canvas_tools(user_id="user", run_id="run", canvas_id="canvas", emit_skill_event=emit)
+    tools = build_canvas_tools(user_id="user", run_id="run", canvas_id="canvas")
 
     class Model:
         calls = 0
@@ -192,19 +192,23 @@ def test_skill_tools_write_loaded_state_and_require_level_two_before_level_three
                 return AIMessage(content="", tool_calls=[{"name": "read_canvas_skill", "args": {"name": "canvas-capabilities"}, "id": "call-skill", "type": "tool_call"}])
             return AIMessage(content="done")
 
-    result = asyncio.run(create_canvas_agent(model=Model(), user_id="user", run_id="run", canvas_id="canvas", tools=tools).ainvoke({"messages": []}))
+    result = asyncio.run(create_canvas_agent(model=Model(), user_id="user", run_id="run", canvas_id="canvas", tools=tools, emit_progress=emit).ainvoke({"messages": []}))
     assert result["loaded_skills"][0]["name"] == "canvas-capabilities"
     assert any(message.tool_call_id == "call-skill" for message in result["messages"] if hasattr(message, "tool_call_id"))
-    assert [event[0] for event in events] == ["skill.loaded"]
+    # The tool node now owns emission: the skill event is wrapped by the
+    # tool group envelope (started -> skill.loaded -> completed).
+    assert [event for event in events if event.startswith("skill.")] == ["skill.loaded"]
+    assert events.count("progress.tool_started") == 1
+    assert events.count("progress.tool_completed") == 1
 
 
 def test_skill_file_tool_requires_loaded_skill_and_reads_reference_progressively():
     events = []
 
-    async def emit(event_type, payload):
-        events.append((event_type, payload))
+    async def emit(event_run_id, spec):
+        events.append(spec.event_type)
 
-    tools = build_canvas_tools(user_id="user", run_id="run", canvas_id="canvas", emit_skill_event=emit)
+    tools = build_canvas_tools(user_id="user", run_id="run", canvas_id="canvas")
 
     class Model:
         calls = 0
@@ -235,7 +239,7 @@ def test_skill_file_tool_requires_loaded_skill_and_reads_reference_progressively
             return AIMessage(content="done")
 
     result = asyncio.run(create_canvas_agent(
-        model=Model(), user_id="user", run_id="run", canvas_id="canvas", tools=tools,
+        model=Model(), user_id="user", run_id="run", canvas_id="canvas", tools=tools, emit_progress=emit,
     ).ainvoke({"messages": []}))
 
     reference_message = next(
@@ -243,18 +247,15 @@ def test_skill_file_tool_requires_loaded_skill_and_reads_reference_progressively
         if isinstance(message, ToolMessage) and message.tool_call_id == "call-reference"
     )
     assert "[内容未完；使用 offset=2 继续读取。]" in reference_message.content
-    assert [event[0] for event in events] == ["skill.loaded", "skill.resource_loaded"]
+    assert [event for event in events if event.startswith("skill.")] == ["skill.loaded", "skill.resource_loaded"]
 
 
 def test_skill_file_tool_rejects_a_skill_that_was_not_loaded():
-    events = []
-
-    async def emit(event_type, payload):
-        events.append((event_type, payload))
+    from app.services.canvas_agent.event_factory import skill_event_from_artifact
 
     tool = next(
         item for item in build_canvas_tools(
-            user_id="user", run_id="run", canvas_id="canvas", emit_skill_event=emit,
+            user_id="user", run_id="run", canvas_id="canvas",
         ) if item.name == "read_canvas_skill_file"
     )
 
@@ -284,4 +285,8 @@ def test_skill_file_tool_rejects_a_skill_that_was_not_loaded():
         if isinstance(item, ToolMessage) and item.tool_call_id == "call-unloaded-resource"
     )
     assert "必须先读取对应的 Skill 正文" in message.content
-    assert events[0][0] == "skill.resource_rejected"
+    # The tool no longer emits events; it tags the ToolMessage with a
+    # discriminated artifact that the runtime tool node translates centrally.
+    spec = skill_event_from_artifact("call-unloaded-resource", message.artifact)
+    assert spec is not None
+    assert spec.event_type == "skill.resource_rejected"

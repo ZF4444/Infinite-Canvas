@@ -24,13 +24,11 @@ async def run_canvas_agent(model: Any, message: str, context: dict[str, Any], *,
     registry = await asyncio.to_thread(from_repository)
     tools = build_canvas_tools(user_id=user_id, run_id=run_id, canvas_id=canvas_id,
                                get_canvas=context.get("get_canvas"),
-                               registry=registry,
-                               emit_skill_event=context.get("emit_skill_event"))
+                               registry=registry)
     graph = runtime.create_canvas_agent(model=model, user_id=user_id, run_id=run_id,
                                 canvas_id=canvas_id, checkpointer=checkpointer,
                                 emit_progress=emit_progress, get_canvas=context.get("get_canvas"),
-                                execute_patch=execute_patch, dispatch_tasks=dispatch_tasks, tools=tools,
-                                emit_skill_event=context.get("emit_skill_event"))
+                                execute_patch=execute_patch, dispatch_tasks=dispatch_tasks, tools=tools)
     references = list(context.get("media_references") or [])
     if references:
         from app.ai.runtime import reference_to_data_url

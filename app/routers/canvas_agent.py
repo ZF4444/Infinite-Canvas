@@ -510,9 +510,6 @@ async def execute_message_command(user_id: str, run_id: str, payload: CanvasAgen
         )
         async def progress(event_run_id: str, spec: EventSpec):
             await _emit_event_spec(user_id, event_run_id, spec)
-        async def emit_skill_event(spec: EventSpec):
-            await _emit_event_spec(user_id, run_id, spec)
-        context["emit_skill_event"] = emit_skill_event
         # Closures passed into the graph so it can mutate the canvas without
         # importing router symbols directly (avoids circular dependencies).
         async def execute_patch(plan_version: int, authorized_node_ids: list[str]) -> dict:
@@ -580,9 +577,6 @@ async def execute_answer_command(user_id: str, run_id: str, payload: CanvasAgent
         model = await asyncio.to_thread(resolve_canvas_agent_model, model=model_name, model_id=model_id, connection_id=connection_id)
         async def progress(event_run_id: str, spec: EventSpec):
             await _emit_event_spec(user_id, event_run_id, spec)
-        async def emit_skill_event(spec: EventSpec):
-            await _emit_event_spec(user_id, run_id, spec)
-        context["emit_skill_event"] = emit_skill_event
         async def execute_patch(plan_version: int, authorized_node_ids: list[str]) -> dict:
             return await _execute_approved_canvas_patch(user_id, run_id, run["canvas_id"], plan_version, authorized_node_ids)
         async def dispatch_tasks(execution_result: dict) -> list[dict]:

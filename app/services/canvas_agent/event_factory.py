@@ -91,10 +91,10 @@ def tool_started(*, tool_name: str, tool_call_id: str) -> EventSpec:
     )
 
 
-def tool_completed(*, tool_name: str, tool_call_id: str, visible: bool = True) -> EventSpec:
+def tool_completed(*, tool_name: str, tool_call_id: str, visible: bool = True, detail: str = "") -> EventSpec:
     label = _TOOL_LABELS.get(tool_name, "画布工具")
     payload = {
-        "message": f"已完成{label}",
+        "message": detail or f"已完成{label}",
         "tool_name": tool_name,
         "tool_call_id": tool_call_id,
         "subject": {"kind": "tool", "name": tool_name},
@@ -244,6 +244,51 @@ def skill_resource_rejected(*, tool_call_id: str, name: str, path: str, reason: 
             ),
         },
     )
+
+
+# Skill tools attach one of these discriminated artifacts to their ToolMessage
+# so the runtime tool node can emit the matching skill event without owning any
+# skill-loading logic itself.
+SKILL_ARTIFACT_KIND = "canvas_skill_event"
+
+
+def skill_event_from_artifact(tool_call_id: str, artifact: Any) -> EventSpec | None:
+    """Build the skill EventSpec described by a skill tool's ToolMessage artifact.
+
+    Returns ``None`` when the artifact is missing or is not a skill-event
+    descriptor, so callers can safely feed every ToolMessage through this.
+    """
+    if not isinstance(artifact, dict) or artifact.get("kind") != SKILL_ARTIFACT_KIND:
+        return None
+    event = str(artifact.get("event") or "")
+    name = str(artifact.get("name") or "")
+    if event == "skill.loaded":
+        return skill_loaded(
+            tool_call_id=tool_call_id,
+            name=name,
+            content_sha256=str(artifact.get("content_sha256") or ""),
+        )
+    if event == "skill.rejected":
+        return skill_rejected(
+            tool_call_id=tool_call_id,
+            name=name,
+            reason=str(artifact.get("reason") or ""),
+        )
+    if event == "skill.resource_loaded":
+        resource = artifact.get("resource")
+        return skill_resource_loaded(
+            tool_call_id=tool_call_id,
+            name=name,
+            resource=resource if isinstance(resource, dict) else {},
+        )
+    if event == "skill.resource_rejected":
+        return skill_resource_rejected(
+            tool_call_id=tool_call_id,
+            name=name,
+            path=str(artifact.get("path") or ""),
+            reason=str(artifact.get("reason") or ""),
+        )
+    return None
 
 
 def task_lifecycle(status: str, payload: dict[str, Any]) -> EventSpec:

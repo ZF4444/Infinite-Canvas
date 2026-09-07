@@ -197,3 +197,46 @@ def test_agent_task_projection_keeps_structured_media_and_clears_terminal_state(
     rerun = {"task_id": "task-2", "node_id": "node-1", "status": "queued", "kind": "image", "expected_count": 1}
     assert events._project_task_to_canvas("user", "run", rerun) == 2
     assert updates[-1]["runStartedAt"] == 3000
+
+
+def test_tool_completed_detail_overrides_default_label():
+    default = tool_completed(tool_name="read_canvas_context", tool_call_id="call-1")
+    assert default.payload["message"] == "已完成画布上下文"
+    override = tool_completed(
+        tool_name="read_canvas_context",
+        tool_call_id="call-1",
+        detail="已完成画布上下文读取",
+    )
+    assert override.payload["message"] == "已完成画布上下文读取"
+
+
+def test_read_canvas_context_completion_detail_full_vs_specific_nodes():
+    from app.services.canvas_agent.runtime import _completion_detail
+
+    # Full read: no selected node ids.
+    assert _completion_detail("read_canvas_context", {}, {"selected_nodes": []}) == "已完成画布上下文读取"
+
+    # Specific nodes resolve to their display titles/names.
+    result = {
+        "selected_nodes": [
+            {"id": "n1", "title": "构图节点"},
+            {"id": "n2", "name": "上色"},
+        ]
+    }
+    detail = _completion_detail(
+        "read_canvas_context",
+        {"selected_node_ids": ["n1", "n2"]},
+        result,
+    )
+    assert detail == "已读取构图节点、上色节点"
+
+    # Unresolvable ids fall back to the raw id.
+    fallback = _completion_detail(
+        "read_canvas_context",
+        {"selected_node_ids": ["missing"]},
+        {"selected_nodes": []},
+    )
+    assert fallback == "已读取missing节点"
+
+    # Non-context tools keep the default label (empty detail).
+    assert _completion_detail("read_artifact", {}, None) == ""
