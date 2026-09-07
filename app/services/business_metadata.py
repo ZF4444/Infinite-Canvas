@@ -16,7 +16,6 @@ from app.config import DATABASE_URL
 from app.core.database import database_connection_sync
 from app.core.utils import now_ms
 
-
 BUSINESS_METADATA_SQL = """
 CREATE TABLE IF NOT EXISTS history_records (
     id TEXT PRIMARY KEY, user_id TEXT NOT NULL, type TEXT NOT NULL DEFAULT 'zimage',
@@ -406,7 +405,10 @@ def sync_ai_legacy_projection(providers: Iterable[dict[str, Any]], workflows: It
             # Copy centralized secrets once to the connection namespace. The
             # old secret remains readable only during this migration release.
             try:
-                from app.services.connection_secrets import get_connection_secret, set_connection_secret
+                from app.services.connection_secrets import (
+                    get_connection_secret,
+                    set_connection_secret,
+                )
                 secret = get_connection_secret(f"legacy:{pid}", "api_key")
                 if secret:
                     set_connection_secret(connection_id, "api_key", secret)
@@ -501,7 +503,7 @@ def list_comfy_workflows() -> list[dict[str, Any]]:
     result = []
     for row in rows:
         config = row['config_json'] or {}
-        result.append({'name': row['name'], 'title': config.get('title') or row['name'].replace('.json', ''), 'field_count': len(config.get('fields') or []), 'media': config.get('media') if config.get('media') in {'image','video'} else 'image', 'cover': config.get('cover') if isinstance(config.get('cover'), dict) else {}, 'enabled': config.get('enabled', True) is not False})
+        result.append({'name': row['name'], 'title': config.get('title') or row['name'].replace('.json', ''), 'note': config.get('note') or '', 'field_count': len(config.get('fields') or []), 'media': config.get('media') if config.get('media') in {'image','video'} else 'image', 'cover': config.get('cover') if isinstance(config.get('cover'), dict) else {}, 'enabled': config.get('enabled', True) is not False})
     return sorted(result, key=lambda item: (0 if item['name'].startswith('custom/') else 1, item['title']))
 
 

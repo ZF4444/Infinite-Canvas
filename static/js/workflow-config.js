@@ -12,7 +12,7 @@ const coverPicker = document.getElementById('workflowCoverPicker');
 const removeCoverBtn = document.getElementById('removeWorkflowCoverBtn');
 
 let current = {
-    source: query.get('source') === 'runninghub' ? 'runninghub' : 'comfyui',
+    source: ['runninghub', 'comfyui_resource'].includes(query.get('source')) ? query.get('source') : 'comfyui',
     id: query.get('id') || '',
     resourceId: query.get('resourceId') || '',
     title: query.get('title') || '',
@@ -68,10 +68,10 @@ async function persistBackend(){
     const config = await response.json();
     if(!response.ok) throw Error(config.detail || '读取资源失败');
     const resources = (config.resources || []).map(resource => {
-        if(resource.kind !== 'runninghub_app' || resource.id !== current.resourceId) return resource;
+        if(resource.id !== current.resourceId) return resource;
         const existingCover = validCover(resource.settings?.cover);
         const nextCover = Object.keys(validCover(current.cover)).length ? current.cover : existingCover;
-        return {...resource, enabled:current.enabled, settings:{...(resource.settings || {}), media:current.media, cover:nextCover}};
+        return {...resource, enabled:current.enabled, settings:{...(resource.settings || {}), title:current.title || resource.name, media:current.media, cover:nextCover}};
     });
     const saved = await fetch('/api/ai/configuration', {method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify({...config, resources})});
     if(!saved.ok) throw Error('保存工作流配置失败');
@@ -95,13 +95,13 @@ function load(){
     comfyUpload.hidden = current.source !== 'comfyui';
     rhIdMeta.hidden = current.source !== 'runninghub';
     title.textContent = current.title || current.id || '新建工作流';
-    hint.textContent = current.source === 'comfyui' ? '配置节点字段和封面，保存后即可在画布中使用。' : '输入 RH应用ID 后打开并配置参数和封面。';
+    hint.textContent = current.source === 'runninghub' ? '输入 RH应用ID 后打开并配置参数和封面。' : '配置节点字段和封面，保存后即可在画布中使用。';
     rhAppId.value = current.source === 'runninghub' ? current.id : '';
     renderCover();
-    const suffix = current.source === 'comfyui'
-        ? `?embedded=1&workflow=${encodeURIComponent(current.id)}`
-        : (current.id ? `?embedded=1&appId=${encodeURIComponent(current.id)}&resourceId=${encodeURIComponent(current.resourceId || '')}&title=${encodeURIComponent(current.title || '')}` : '?embedded=1');
-    frame.src = `/static/${current.source === 'comfyui' ? 'comfyui-settings.html' : 'rh-workflow-settings.html'}${suffix}`;
+    const suffix = current.source === 'runninghub'
+        ? (current.id ? `?embedded=1&appId=${encodeURIComponent(current.id)}&resourceId=${encodeURIComponent(current.resourceId || '')}&title=${encodeURIComponent(current.title || '')}` : '?embedded=1')
+        : `?embedded=1&workflow=${encodeURIComponent(current.id)}`;
+    frame.src = `/static/${current.source === 'runninghub' ? 'rh-workflow-settings.html' : 'comfyui-settings.html'}${suffix}`;
 }
 async function uploadCover(file){
     if(!file) return;

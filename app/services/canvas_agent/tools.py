@@ -1,21 +1,25 @@
 """Scoped LangChain tools for the Canvas Agent."""
 from __future__ import annotations
+
 import asyncio
 import json
 from typing import Any, Awaitable, Callable
+
 from langchain.tools import ToolRuntime
 from langchain_core.messages import ToolMessage
 from langchain_core.tools import StructuredTool, tool
 from langgraph.types import Command
+
 from app.models.canvas_agent import SemanticPlan
-from .capabilities import CapabilityRegistry
 from app.services.ai_parameters import capability_parameters
-from .context import build_canvas_context
-from .policy import assess_patch
+
 from .adapter import semantic_plan_to_patch
-from .store import latest_artifact, save_plan
-from .skills import read_skill_document, read_skill_resource
+from .capabilities import CapabilityRegistry, from_repository
+from .context import build_canvas_context
 from .event_factory import SKILL_ARTIFACT_KIND
+from .policy import assess_patch
+from .skills import read_skill_document, read_skill_resource
+from .store import latest_artifact, save_plan
 
 
 def submit_semantic_plan(plan: dict[str, Any]) -> SemanticPlan:
@@ -25,8 +29,7 @@ def submit_semantic_plan(plan: dict[str, Any]) -> SemanticPlan:
 def build_canvas_tools(*, user_id: str, run_id: str, canvas_id: str,
                        get_canvas: Callable[[], Awaitable[dict[str, Any]]] | None = None,
                        execute_patch: Callable[[int, list[str]], Awaitable[dict[str, Any]]] | None = None,
-                       include_execution: bool = False,
-                       registry: CapabilityRegistry | None = None) -> list[StructuredTool]:
+                       include_execution: bool = False) -> list[StructuredTool]:
     """Create tools scoped to one authenticated Agent Run."""
     def agent_display_schema(schema: dict[str, Any], connection_id: str, model: str) -> dict[str, Any]:
         from app.ai.database_repository import DatabaseAIRepository
@@ -58,7 +61,7 @@ def build_canvas_tools(*, user_id: str, run_id: str, canvas_id: str,
     @tool
     async def read_capability_registry() -> list[dict[str, Any]]:
         """List capabilities available to canvas nodes."""
-        return (registry or CapabilityRegistry()).as_dict()
+        return (await asyncio.to_thread(from_repository)).as_dict()
 
     @tool
     async def read_capability_parameters(capability: str, connection_id: str = "", model_id: str = "", resource_id: str = "", model: str = "") -> dict[str, Any]:

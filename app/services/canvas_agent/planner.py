@@ -1,13 +1,21 @@
 """Public entry points for the tool-calling Canvas Agent."""
 from __future__ import annotations
+
 import asyncio
 from typing import Any
+
+from langchain.agents.structured_output import ProviderStrategy
 from langchain_core.messages import HumanMessage
 from langgraph.types import Command
-from langchain.agents.structured_output import ProviderStrategy
-from app.models.canvas_agent import IntentDecision, SemanticPlan, SemanticNode, SemanticStep
+
+from app.models.canvas_agent import (
+    IntentDecision,
+    SemanticNode,
+    SemanticPlan,
+    SemanticStep,
+)
+
 from . import runtime
-from .capabilities import from_repository
 from .tools import build_canvas_tools
 
 
@@ -19,12 +27,8 @@ async def run_canvas_agent(model: Any, message: str, context: dict[str, Any], *,
     run_id = str(context.get("run_id") or "canvas-agent")
     user_id = str(context.get("user_id") or "")
     canvas_id = str(context.get("canvas_id") or "")
-    # Build the registry from the active provider configuration once per graph
-    # invocation. The model only sees its public capability metadata.
-    registry = await asyncio.to_thread(from_repository)
     tools = build_canvas_tools(user_id=user_id, run_id=run_id, canvas_id=canvas_id,
-                               get_canvas=context.get("get_canvas"),
-                               registry=registry)
+                               get_canvas=context.get("get_canvas"))
     graph = runtime.create_canvas_agent(model=model, user_id=user_id, run_id=run_id,
                                 canvas_id=canvas_id, checkpointer=checkpointer,
                                 emit_progress=emit_progress, get_canvas=context.get("get_canvas"),
