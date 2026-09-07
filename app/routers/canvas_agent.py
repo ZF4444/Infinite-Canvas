@@ -170,6 +170,32 @@ def _can_continue_planning(status: str) -> bool:
     return str(status or "") not in {"cancelled", "failed", "blocked"}
 
 
+def _normalize_semantic_type(raw: str) -> str:
+    """Map a canvas/frontend node type onto a valid SemanticNodeType literal.
+
+    Live canvas nodes carry frontend-only types (e.g. ``smart-asset-image`` for
+    pasted/cropped asset nodes, ``smart-loop``) that are not part of the
+    SemanticNode contract. Passing them through unmapped makes SemanticPlan
+    validation fail during cost estimation, so collapse them to the closest
+    valid semantic type with an image default.
+    """
+    value = str(raw or "").strip()
+    mapping = {
+        "prompt": "prompt", "smart-prompt": "smart-prompt",
+        "image_generation": "image_generation", "video_generation": "video_generation",
+        "workflow_generation": "workflow_generation",
+        "smart-image": "smart-image", "smart-asset-image": "image_generation",
+        "group": "group", "smart-group": "smart-group", "smart-loop": "smart-prompt",
+    }
+    if value in mapping:
+        return mapping[value]
+    if "video" in value:
+        return "video_generation"
+    if "prompt" in value:
+        return "smart-prompt"
+    return "image_generation"
+
+
 def _hydrate_plan_nodes(plan_json: dict, canvas: dict | None) -> dict:
     """Attach node snapshots to every configurable step for the UI.
 
@@ -217,8 +243,10 @@ def _hydrate_plan_nodes(plan_json: dict, canvas: dict | None) -> dict:
         prompt = next((source.get(key) for key in ("promptDraftText", "runPrompt", "prompt", "content", "text")
                        if isinstance(source.get(key), str) and source.get(key).strip()), "")
         capability = str(source.get("capability") or "")
+        raw_type = str(source.get("type") or source.get("semantic_type") or "")
+        semantic_type = _normalize_semantic_type(raw_type)
         if not capability:
-            node_type = str(source.get("type") or source.get("semantic_type") or "")
+            node_type = semantic_type
             api_kind = str(source_run_settings.get("apiKind") or source.get("genKind") or "").lower()
             engine = str(source_run_settings.get("engine") or "").lower()
             if node_type in {"smart-prompt", "prompt"}:
@@ -233,7 +261,7 @@ def _hydrate_plan_nodes(plan_json: dict, canvas: dict | None) -> dict:
                 capability = "image.text_to_image"
         step["node"] = {
             "schema_version": 1,
-            "semantic_type": source.get("semantic_type") or source.get("type") or "image_generation",
+            "semantic_type": semantic_type,
             "title": source.get("title") or source.get("name") or "",
             "content": prompt,
             "capability": capability,

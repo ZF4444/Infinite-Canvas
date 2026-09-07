@@ -42,6 +42,23 @@ def test_hydrate_plan_nodes_reuses_created_node_for_followup_execution_step():
     assert hydrated["steps"][1]["node"] == hydrated["steps"][0]["node"]
 
 
+def test_hydrate_plan_nodes_normalizes_frontend_only_node_types():
+    # smart-asset-image is a frontend-only asset node type. Hydration used to
+    # copy it verbatim into semantic_type, which then failed SemanticPlan
+    # validation during cost estimation.
+    plan = {"goal": "render asset", "execution": {"capabilities": ["image.text_to_image"]}, "steps": [
+        {"id": "create", "action": "canvas.create_node", "node": {
+            "semantic_type": "image_generation", "title": "生成", "capability": "image.text_to_image"}},
+        {"id": "run", "action": "canvas.run_node", "target_node_id": "asset-1"},
+    ]}
+    canvas = {"nodes": [{"id": "asset-1", "type": "smart-asset-image", "title": "素材", "url": "x.png"}]}
+    hydrated = _hydrate_plan_nodes(plan, canvas)
+    assert hydrated["steps"][1]["node"]["semantic_type"] == "image_generation"
+    # The whole plan must remain valid for downstream cost estimation.
+    from app.models.canvas_agent import SemanticPlan
+    SemanticPlan.model_validate(hydrated)
+
+
 def test_hydrate_plan_nodes_prefers_generation_prompt_over_imported_file_text():
     plan = {"steps": [{"id": "run", "action": "canvas.run_node", "target_node_id": "n1"}]}
     canvas = {"nodes": [{
