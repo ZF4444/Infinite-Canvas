@@ -172,10 +172,15 @@ def _normalize_rh_field(field: dict[str, Any]) -> dict[str, Any]:
     raw_type = str(field.get("fieldType") or "").upper()
     options = next((field[key] for key in ("fieldData", "options", "list", "values", "enum", "choices", "items", "selectOptions", "dropdown") if isinstance(field.get(key), list)), None)
     field_type = "dropdown" if raw_type in {"LIST", "SELECT", "DROPDOWN", "COMBO", "ENUM"} else "slider" if raw_type == "SLIDER" else "number" if raw_type in {"NUMBER", "FLOAT", "INTEGER", "INT"} else "boolean" if raw_type in {"BOOLEAN", "BOOL"} else raw_type.lower() if raw_type in {"IMAGE", "VIDEO", "AUDIO"} else "text"
+    # Role mirrors the canvas node's rhFieldKind() so clients can route prompt
+    # text to the prompt box and treat image/video/audio fields as reference
+    # inputs (fed by node connections) rather than editable parameters.
+    role = ("image" if raw_type == "IMAGE" else "video" if raw_type == "VIDEO" else "audio" if raw_type == "AUDIO"
+            else "prompt" if raw_type in {"PROMPT", "TEXTAREA"} else field_type)
     default = field.get("fieldValue")
     if isinstance(default, list):
         default = default[0] if default else ""
-    return {"id": f"{field.get('nodeId') or ''}::{field.get('fieldName') or ''}", "nodeId": str(field.get("nodeId") or ""), "fieldName": str(field.get("fieldName") or ""), "name": str(field.get("label") or field.get("fieldName") or "Field"), "type": field_type, "default": default if default is not None and not isinstance(default, dict) else "", "options": options or [], "min": field.get("min"), "max": field.get("max"), "step": field.get("step")}
+    return {"id": f"{field.get('nodeId') or ''}::{field.get('fieldName') or ''}", "nodeId": str(field.get("nodeId") or ""), "fieldName": str(field.get("fieldName") or ""), "name": str(field.get("label") or field.get("fieldName") or "Field"), "type": field_type, "role": role, "default": default if default is not None and not isinstance(default, dict) else "", "options": options or [], "min": field.get("min"), "max": field.get("max"), "step": field.get("step")}
 
 
 def capability_parameters(*, capability: str, provider_id: str = "", model: str = "", connection_id: str = "", model_id: str = "", resource_id: str = "", provider_loader=None, workflow_loader=None) -> dict[str, Any]:

@@ -57,7 +57,12 @@ def normalize_event_type(value: str) -> str:
 def sanitize_payload(value: dict[str, Any] | None) -> dict[str, Any]:
     """Drop credentials and cap payload size before it reaches DB/Redis/browser."""
     def clean(item: Any, depth: int = 0) -> Any:
-        if depth > 8:
+        # The depth guard only bounds pathological nesting; legitimate payloads
+        # such as a plan's per-node runSettings.rhParams field values sit ~10
+        # levels deep (plan → steps → node → params → runSettings → rhParams →
+        # <field> → value) and must survive intact. The byte cap below and the
+        # per-string cap remain the real size guards.
+        if depth > 16:
             return "[truncated]"
         if isinstance(item, dict):
             return {str(key): "[redacted]" if str(key).lower() in _SENSITIVE_KEYS else clean(child, depth + 1) for key, child in item.items()}

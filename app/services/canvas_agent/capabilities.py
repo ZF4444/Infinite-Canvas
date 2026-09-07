@@ -1,16 +1,17 @@
 """Canonical capability registry for Canvas Agent."""
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
 
 from app.ai.database_repository import DatabaseAIRepository
+from app.services.business_metadata import list_comfy_workflows
 
 
 @dataclass(frozen=True)
 class Capability:
     name: str
-    input_constraints: dict[str, Any] = field(default_factory=dict)
+    description: str = ""
     cost_level: str = "unknown"
     enabled: bool = True
     connection_id: str = ""
@@ -49,7 +50,7 @@ class CapabilityRegistry:
     def as_dict(self) -> list[dict[str, Any]]:
         return [{
             "name": item.name,
-            "input_constraints": item.input_constraints,
+            "description": item.description,
             "cost_level": item.cost_level,
             "enabled": item.enabled,
             "connection_id": item.connection_id,
@@ -73,7 +74,7 @@ def from_repository(repository: DatabaseAIRepository | None = None) -> Capabilit
         if capability_name:
             registry.register(Capability(
                 capability_name,
-                {"model_id": model.id, "model": model.upstream_model, "model_name": model.alias or model.upstream_model},
+                "",
                 {"chat": "low", "image": "medium", "video": "high"}[model.kind],
                 model.enabled and connection.enabled,
                 connection.id, model.id, "", connection.name, model.alias or model.upstream_model,
@@ -89,5 +90,11 @@ def from_repository(repository: DatabaseAIRepository | None = None) -> Capabilit
         else:
             media = "video" if settings.get("media") == "video" else "image"
             name = str(settings.get("capability") or f"comfyui.workflow.{media}")
-        registry.register(Capability(name, {"resource_id": resource.id, "title": resource.name}, "high", resource.enabled and connection.enabled, connection.id, "", resource.id, connection.name, resource.name))
+        description = str(settings.get("note") or "")
+        registry.register(Capability(name, description, "high", resource.enabled and connection.enabled, connection.id, "", resource.id, connection.name, resource.name))
+    # local workflows have no connection; resolver uses workflow_name as the model key
+    for workflow in list_comfy_workflows():
+        media = "video" if workflow.get("media") == "video" else "image"
+        description = str(workflow.get("note") or "")
+        registry.register(Capability(f"comfyui.workflow.{media}", description, "high", workflow.get("enabled", True) is not False, "", "", workflow["name"], "本地 ComfyUI", workflow.get("title") or workflow["name"]))
     return registry
