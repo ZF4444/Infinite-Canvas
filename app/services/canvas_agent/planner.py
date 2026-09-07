@@ -32,12 +32,29 @@ async def run_canvas_agent(model: Any, message: str, context: dict[str, Any], *,
     references = list(context.get("media_references") or [])
     if references:
         from app.ai.runtime import reference_to_data_url
-        labels = "\n".join(f"- {ref.get('label')}: {ref.get('node_label') or ref.get('node_id')}" for ref in references)
-        parts: list[dict[str, Any]] = [{"type": "text", "text": f"{message}\n\n本轮引用画布素材（按顺序）：\n{labels}"}]
-        for ref in references[:12]:
+        parts: list[dict[str, Any]] = [{"type": "text", "text": message}]
+        included = 0
+        for ref in references:
+            if included >= 12:
+                break
+            label = ref.get("label")
+            node_desc = ref.get("node_label") or ref.get("node_id") or "未知节点"
+            node_id = str(ref.get("node_id") or "").strip()
+            id_hint = f"（节点 id: {node_id}）" if node_id else ""
+            # Placeholder references carry no image; keep their canvas context as
+            # text so the model still knows the node was mentioned.
+            if ref.get("empty") or not str(ref.get("url") or "").strip():
+                parts.append({"type": "text", "text": f"[{label}] 引用画布节点「{node_desc}」{id_hint}（暂无图像）"})
+                continue
             data_url = await asyncio.to_thread(reference_to_data_url, ref, 1536)
-            if data_url:
-                parts.append({"type": "image_url", "image_url": {"url": data_url}})
+            if not data_url:
+                parts.append({"type": "text", "text": f"[{label}] 引用画布节点「{node_desc}」{id_hint}（图像不可用）"})
+                continue
+            # Emit the node context immediately before its image so text labels
+            # and images stay aligned even when entries are skipped or truncated.
+            parts.append({"type": "text", "text": f"[{label}] 来自画布节点「{node_desc}」{id_hint}，如下图："})
+            parts.append({"type": "image_url", "image_url": {"url": data_url}})
+            included += 1
         human = HumanMessage(content=parts)
     else:
         human = HumanMessage(content=message)
