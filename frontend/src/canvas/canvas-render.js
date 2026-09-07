@@ -154,10 +154,34 @@ function refreshRunTimerPills(){
     if(active && !runTimerInterval) runTimerInterval = setInterval(refreshRunTimerPills, 1000);
     if(!active && runTimerInterval){ clearInterval(runTimerInterval); runTimerInterval = null; }
 }
+// 统一名称栏：每种节点类型对应的小图标，复用右键（画布）菜单里的节点图标。
+// 生成节点按 genKind 区分（图片 image / 视频 play-square / 工作流 workflow），
+// 与 canvasContextMenuHtml() 中的创建项一一对应。
+function nodeTypeIcon(node){
+    if(!node) return 'image';
+    if(node.type === 'smart-prompt') return 'text-cursor-input';
+    if(node.type === 'smart-loop') return 'repeat-2';
+    if(node.type === 'smart-group') return 'group';
+    // 图片 / 视频 / 工作流生成节点：复用 genKindIcon（image / play-square / workflow）。
+    return genKindIcon(node);
+}
+// 统一名称栏显示的名称：优先使用用户编辑并持久化的 node.title，
+// 缺省时回退到各类型的默认名称。
+function nodeDisplayTitle(node){
+    if(!node) return '';
+    const custom = typeof node.title === 'string' ? node.title.trim() : '';
+    if(custom) return node.title;
+    if(node.type === 'smart-group') return '智能分组';
+    if(node.type === 'smart-prompt') return 'Prompt';
+    if(node.type === 'smart-loop') return 'Loop';
+    const imgs = node.images || [];
+    return imgs.length > 1 ? 'Group' : imgs.length ? 'Image' : genKindLabel(node);
+}
 function smartNodeHtmlEntry(node){
         const migratedCandidates = migrateGeneratedImagesToCandidatePool(node);
         const imgs = node.images || [];
-        const title = node.type === 'smart-group' ? (node.title || '智能分组') : node.type === 'smart-prompt' ? 'Prompt' : node.type === 'smart-loop' ? 'Loop' : (imgs.length > 1 ? 'Group' : imgs.length ? 'Image' : escapeHtml(genKindLabel(node)));
+        const title = nodeDisplayTitle(node);
+        const nameIcon = nodeTypeIcon(node);
         const scale = nodeScale(node);
         const layout = imageLayout(imgs, scale, node);
         const isPrompt = node.type === 'smart-prompt';
@@ -174,7 +198,7 @@ function smartNodeHtmlEntry(node){
         const hint = isSmartGroup ? '拖入图片、提示词或循环节点' : isPending ? escapeHtml(tr('smart.hintPending')) : (imgs.length > 1 ? escapeHtml(tr('smart.hintMulti')) : imgs.length ? escapeHtml(tr('smart.hintSingle')) : escapeHtml(node.genKind === 'video' ? '支持视频 / 音频，也可直接文生视频' : node.genKind === 'workflow' ? '支持图片 / 视频 / 音频，ComfyUI 工作流生成' : '支持图片 / 视频 / 音频，也可直接文生图'));
         const floatingActions = candidateControlHtml(node);
         const html = `<div class="image-node ${isEmpty ? 'empty-node' : ''} ${isGroup ? 'group-node' : ''} ${isHistory ? 'history-group-node' : ''} ${isPrompt ? 'prompt-smart-node' : ''} ${isLoop ? 'loop-smart-node' : ''} ${isSmartGroup ? 'smart-group-node' : ''} ${isCompactMember ? 'smart-group-member-node' : ''} ${candidatePanelNodeId === node.id ? 'candidate-panel-open-node' : ''} ${isNodeSelected(node.id) ? 'selected' : ''} ${(dragState?.groupIds?.includes(node.id) || dragState?.id === node.id) ? 'dragging' : ''} ${node.running ? 'node-running' : ''} ${isPending ? 'node-pending' : ''}" data-id="${escapeHtml(node.id)}" style="left:${node.x || 0}px;top:${node.y || 0}px;width:${layout.width}px;height:${layout.height}px">
-            <div class="node-head"><div class="node-title">${title}</div></div>
+            <div class="node-head"><div class="node-name-bar" title="${escapeAttr(title)}"><span class="node-name-icon"><i data-lucide="${escapeAttr(nameIcon)}"></i></span><span class="node-title" data-node-title="${escapeAttr(node.id)}" spellcheck="false">${escapeHtml(title)}</span></div></div>
             ${!isEmpty && floatingActions ? `<div class="floating-node-actions">${floatingActions}</div>` : ''}
             ${runTimePillHtml(node)}
             <div class="node-body">${body}</div>
@@ -372,6 +396,74 @@ function pickMediaForSmartNode(nodeId){
     document.body.appendChild(input);
     input.click();
 }
+function bindNodeTitleEditing(el, id){
+    const titleEl = el.querySelector('.node-title[data-node-title]');
+    if(!titleEl) return;
+    const enterEdit = () => {
+        if(titleEl.classList.contains('editing')) return;
+        const node = nodes.find(n => n.id === id);
+        if(!node) return;
+        titleEl.classList.add('editing');
+        titleEl.setAttribute('contenteditable', 'plaintext-only');
+        // plaintext-only 在部分浏览器不支持时回退为普通 contenteditable。
+        if(titleEl.contentEditable !== 'plaintext-only') titleEl.setAttribute('contenteditable', 'true');
+        titleEl.textContent = nodeDisplayTitle(node);
+        titleEl.focus();
+        // 选中全部文本，便于直接替换。
+        const range = document.createRange();
+        range.selectNodeContents(titleEl);
+        const sel = window.getSelection();
+        sel.removeAllRanges();
+        sel.addRange(range);
+    };
+    const commit = () => {
+        if(!titleEl.classList.contains('editing')) return;
+        const node = nodes.find(n => n.id === id);
+        titleEl.classList.remove('editing');
+        titleEl.removeAttribute('contenteditable');
+        const raw = (titleEl.textContent || '').replace(/\s+/g, ' ').trim();
+        if(node){
+            // 空名称视为清除自定义标题，回退到该类型默认名称。
+            if(raw) node.title = raw;
+            else delete node.title;
+            scheduleSave();
+        }
+        // 重新渲染以恢复省略号/大写样式并刷新标题文本。
+        render();
+    };
+    const cancel = () => {
+        if(!titleEl.classList.contains('editing')) return;
+        const node = nodes.find(n => n.id === id);
+        titleEl.classList.remove('editing');
+        titleEl.removeAttribute('contenteditable');
+        titleEl.textContent = nodeDisplayTitle(node);
+    };
+    titleEl.addEventListener('mousedown', e => {
+        // 编辑态时吞掉 mousedown，避免触发节点拖拽 / 选中逻辑。
+        if(titleEl.classList.contains('editing')) e.stopPropagation();
+    });
+    titleEl.addEventListener('click', e => {
+        if(titleEl.classList.contains('editing')) e.stopPropagation();
+    });
+    titleEl.addEventListener('dblclick', e => {
+        e.preventDefault();
+        e.stopPropagation();
+        enterEdit();
+    });
+    titleEl.addEventListener('keydown', e => {
+        if(!titleEl.classList.contains('editing')) return;
+        if(e.key === 'Enter'){
+            e.preventDefault();
+            titleEl.blur();
+        } else if(e.key === 'Escape'){
+            e.preventDefault();
+            cancel();
+            titleEl.blur();
+        }
+        e.stopPropagation();
+    });
+    titleEl.addEventListener('blur', () => { commit(); });
+}
 function bindNodeEvents(nodeElements=world.querySelectorAll('.image-node')){
     nodeElements.forEach(el => {
         const id = el.dataset.id;
@@ -403,6 +495,8 @@ function bindNodeEvents(nodeElements=world.querySelectorAll('.image-node')){
         }, true);
         el.onclick = e => {
             e.stopPropagation();
+            // 名称栏：单击不重渲染，避免打断双击进入编辑态；编辑态更不处理。
+            if(e.target.closest('.node-title')) return;
             if(Date.now() < suppressNodeClickUntil) return;
             const node = nodes.find(n => n.id === id);
             hideRunTimerForNode(node);
@@ -415,10 +509,12 @@ function bindNodeEvents(nodeElements=world.querySelectorAll('.image-node')){
         };
         el.ondblclick = e => {
             e.stopPropagation();
+            if(e.target.closest('.node-title')) return;
             if(nodeForControls?.type === 'smart-group' && !e.target.closest('.thumb-item,.image-wrap,.mini-x,.node-port')){
                 openCreateMenu(e);
             }
         };
+        bindNodeTitleEditing(el, id);
         const uploadTrigger = el.querySelector('.generation-node-main');
         uploadTrigger?.addEventListener('mousedown', e => {
             if(e.button !== 0) return;
@@ -646,6 +742,8 @@ function bindNodeEvents(nodeElements=world.querySelectorAll('.image-node')){
         });
         const beginNodeDrag = e => {
             const isMultiSelected = selectedIds.length > 1 && selectedIds.includes(id);
+            // 名称栏进入编辑态时（.node-title.editing），不触发节点拖拽，允许选择文本。
+            if(e.target.closest('.node-title.editing')) return;
             // Allow starting a group drag even when the press lands on a thumb-item/video
             // (native <video controls> can swallow the click), as long as this node is
             // part of an existing multi-selection — otherwise thumb-item clicks are

@@ -730,13 +730,25 @@ body.studio-theme-dark .shell .node {
 
 html.studio-theme-dark body .shell .node-head,
 body.studio-theme-dark .shell .node-head {
-    background: #171d29 !important;
-    border-bottom-color: rgba(148,163,184,.14) !important;
+    background: transparent !important;
+    border: 0 !important;
 }
 
 html.studio-theme-dark body .shell .node-title,
 body.studio-theme-dark .shell .node-title {
     color: #8f9aab !important;
+}
+
+html.studio-theme-dark body .shell .node-name-icon,
+body.studio-theme-dark .shell .node-name-icon {
+    color: #8f9aab !important;
+}
+
+html.studio-theme-dark body .shell .node-title.editing,
+body.studio-theme-dark .shell .node-title.editing {
+    color: #e6eaf2 !important;
+    background: #0f1420 !important;
+    box-shadow: 0 0 0 1px rgba(148,163,184,.28) !important;
 }
 
 html.studio-theme-dark body .shell .node.selected,
