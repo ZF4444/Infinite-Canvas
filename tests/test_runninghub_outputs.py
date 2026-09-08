@@ -1,5 +1,9 @@
+import asyncio
+
+import httpx
+
 import main
-from app.ai.domain import Connection, ResolvedTarget
+from app.ai.domain import Connection, ExecutableResource, ResolvedTarget
 from app.ai import transport
 
 
@@ -57,3 +61,44 @@ def test_runninghub_output_kind_uses_media_extension():
     assert main.runninghub_output_kind("wav") == "audio"
     assert main.runninghub_output_kind("zip") == "file"
     assert main.runninghub_output_kind("webp") == "image"
+
+
+def test_runninghub_query_returns_remote_output_when_local_mirror_fails(monkeypatch):
+    remote_url = "https://example.com/result.png"
+    target = ResolvedTarget(
+        connection=Connection(id="runninghub-connection", protocol="runninghub", name="RunningHub", base_url="https://www.runninghub.cn", enabled=True),
+        resource=ExecutableResource(id="runninghub-resource", connection_id="runninghub-connection", kind="runninghub_app", name="App"),
+    )
+
+    from app.ai.database_repository import DatabaseAIRepository
+    from app.ai.adapters.runninghub_transport import RunningHubTransport
+    from app.services import usage
+
+    monkeypatch.setattr(main, "current_user_id", lambda: "user-1")
+    monkeypatch.setattr(DatabaseAIRepository, "resolve_executable", lambda *_args, **_kwargs: target)
+    monkeypatch.setattr(main, "canonical_connection_view", lambda _target: {"connection_id": "runninghub-connection"})
+
+    async def fake_api_key(_provider):
+        return "test-key"
+
+    async def fake_query(_self, _provider, _api_key, _task_id):
+        return {"code": 0, "data": {"outputs": [{"fileUrl": remote_url}]}}
+
+    async def fail_store(_client, _remote):
+        raise httpx.ReadError("stream interrupted")
+
+    async def fake_storage_io(func, *args, **kwargs):
+        if func is main.media_response_item:
+            return {"url": args[0], "kind": kwargs.get("kind") or ""}
+        return None
+
+    monkeypatch.setattr(main, "runninghub_api_key_async", fake_api_key)
+    monkeypatch.setattr(RunningHubTransport, "query", fake_query)
+    monkeypatch.setattr(main, "runninghub_store_remote_output", fail_store)
+    monkeypatch.setattr(main, "run_storage_io", fake_storage_io)
+    monkeypatch.setattr(usage, "settle_runninghub_usage", lambda *_args, **_kwargs: None)
+
+    result = asyncio.run(main.runninghub_query(taskId="task-1", resource_id="runninghub-resource"))
+
+    assert result["data"]["status"] == "SUCCESS"
+    assert result["data"]["urls"] == [remote_url]
