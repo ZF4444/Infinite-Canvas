@@ -314,6 +314,11 @@
         "canvas.videoRoleReference": { zh: "参考", en: "Ref" },
         "canvas.videoRoleFirstFrame": { zh: "首帧", en: "First" },
         "canvas.videoRoleLastFrame": { zh: "尾帧", en: "Last" },
-        "canvas.videoFailed": { zh: "视频生成失败", en: "Video generation failed" }
+        "canvas.videoFailed": { zh: "视频生成失败", en: "Video generation failed" },
+        "canvas.captionBtn": { zh: "反推", en: "Caption" },
+        "canvas.captionRunning": { zh: "正在反推提示词...", en: "Generating caption..." },
+        "canvas.captionDone": { zh: "已生成反推提示词", en: "Caption generated" },
+        "canvas.captionFailed": { zh: "反推失败", en: "Caption failed" },
+        "canvas.captionPrompt": { zh: "请详细描述这张图片的内容，用于生成提示词。输出纯文本描述，不要使用markdown格式。", en: "Describe this image in detail for use as a generation prompt. Output plain text only, no markdown." }
     });
 })();

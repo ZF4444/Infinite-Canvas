@@ -283,6 +283,11 @@
         "smart.shortcutPan": { zh: "拖动画布", en: "Pan the canvas" },
         "smart.shortcutArrowPan": { zh: "移动画布，配合 Shift 可移动更快", en: "Move the canvas, hold Shift to move faster" },
         "smart.shortcutZoom": { zh: "缩放画布或预览图片", en: "Zoom canvas or preview image" },
-        "smart.shortcutDelete": { zh: "删除选中节点", en: "Delete selected nodes" }
+        "smart.shortcutDelete": { zh: "删除选中节点", en: "Delete selected nodes" },
+        "smart.captionBtn": { zh: "反推", en: "Caption" },
+        "smart.captionPrompt": { zh: "请详细描述这张图片的内容，用于生成提示词。输出纯文本描述，不要使用markdown格式。", en: "Describe this image in detail for use as a generation prompt. Output plain text only, no markdown." },
+        "smart.captionDone": { zh: "已生成反推提示词", en: "Caption generated" },
+        "smart.captionEmpty": { zh: "反推结果为空", en: "Caption result is empty" },
+        "smart.captionFailed": { zh: "反推失败", en: "Caption failed" }
     });
 })();

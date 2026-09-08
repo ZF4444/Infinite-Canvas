@@ -31,6 +31,20 @@
         "bulk.selectedCount": { zh: "已选 {n} 张", en: "{n} selected" },
         "bulk.deleteConfirm": { zh: "确认删除选中的 {n} 张图片？此操作不可恢复。", en: "Delete the selected {n} image(s)? This cannot be undone." },
         "bulk.deleting": { zh: "删除中…", en: "Deleting…" },
-        "bulk.noSelection": { zh: "请先选择要删除的图片", en: "Select images to delete first" }
+        "bulk.noSelection": { zh: "请先选择要删除的图片", en: "Select images to delete first" },
+        "caption.ruleManage": { zh: "规则管理", en: "Rule Manager" },
+        "caption.selectService": { zh: "选择服务", en: "Select Service" },
+        "caption.ruleSwitched": { zh: "已切换反推规则", en: "Caption rule switched" },
+        "caption.modelSwitched": { zh: "已切换反推模型", en: "Caption model switched" },
+        "caption.ruleAdd": { zh: "新增规则", en: "Add Rule" },
+        "caption.ruleEdit": { zh: "编辑规则", en: "Edit Rule" },
+        "caption.ruleReset": { zh: "恢复默认", en: "Reset" },
+        "caption.ruleDone": { zh: "完成", en: "Done" },
+        "caption.ruleName": { zh: "规则名称", en: "Name" },
+        "caption.ruleCategory": { zh: "分类", en: "Category" },
+        "caption.ruleContent": { zh: "提示词内容", en: "Prompt Content" },
+        "caption.ruleCancel": { zh: "返回", en: "Back" },
+        "caption.ruleSave": { zh: "保存", en: "Save" },
+        "caption.ruleNeedFields": { zh: "请填写名称和内容", en: "Name and content are required" }
     });
 })();
