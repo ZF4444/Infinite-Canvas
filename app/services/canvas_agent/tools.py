@@ -13,7 +13,7 @@ from langgraph.types import Command
 from app.models.canvas_agent import SemanticPlan
 from app.services.ai_parameters import capability_parameters
 
-from .adapter import semantic_plan_to_patch
+from .adapter import capability_schema_resolver, semantic_plan_to_patch
 from .capabilities import CapabilityRegistry, from_repository
 from .context import build_canvas_context
 from .event_factory import SKILL_ARTIFACT_KIND
@@ -32,26 +32,50 @@ def build_canvas_tools(*, user_id: str, run_id: str, canvas_id: str,
                        include_execution: bool = False) -> list[StructuredTool]:
     """Create tools scoped to one authenticated Agent Run."""
     def agent_display_schema(schema: dict[str, Any], connection_id: str, model: str) -> dict[str, Any]:
+        """Project the backend field contract into a lean, model-facing view.
+
+        The raw ``capability_parameters`` schema carries execution metadata
+        (``execution.target``/``transform``), UI hints (``ui.configurable``),
+        and duplicated raw ``options``/``option_labels`` that the frontend and
+        executor need but the planner does not. Emitting all of it doubles the
+        token cost and forces the model to guess which copy to use. Return only
+        what the planner needs to choose values: a display name, a role, and
+        options as ``{value,label}`` pairs alongside a canonical default.
+        """
         from app.ai.database_repository import DatabaseAIRepository
         repository = DatabaseAIRepository()
         connection = next((item for item in repository.connections() if item.id == connection_id), None)
         selected = next((item for item in repository.models() if item.connection_id == connection_id and item.upstream_model == model), None)
         model_label = str(selected.alias if selected else model or "")
-        result = dict(schema)
-        result["display_connection"] = str(connection.name if connection else connection_id or "")
-        result["display_model"] = model_label
-        result["display_fields"] = []
+        fields: list[dict[str, Any]] = []
         for field in schema.get("fields") or []:
-            item = dict(field)
             options = list(field.get("options") or [])
             labels = list(field.get("option_labels") or [])
-            if len(labels) != len(options): labels = [str(value) for value in options]
-            item["display_name"] = str(field.get("name") or field.get("id") or "")
-            item["display_options"] = [{"value": value, "label": labels[index]} for index, value in enumerate(options)]
-            default = field.get("default")
-            item["display_default"] = labels[options.index(default)] if default in options else default
-            result["display_fields"].append(item)
-        return result
+            if len(labels) != len(options):
+                labels = [str(value) for value in options]
+            item: dict[str, Any] = {
+                "id": str(field.get("id") or ""),
+                "name": str(field.get("name") or field.get("id") or ""),
+            }
+            role = str(field.get("role") or "")
+            if role:
+                item["role"] = role
+            item["type"] = str(field.get("type") or "text")
+            if options:
+                item["options"] = [{"value": value, "label": labels[index]} for index, value in enumerate(options)]
+            if field.get("default") is not None:
+                item["default"] = field.get("default")
+            for key in ("min", "max", "step"):
+                if field.get(key) is not None:
+                    item[key] = field.get(key)
+            fields.append(item)
+        return {
+            "capability": str(schema.get("capability") or ""),
+            "params_path": str(schema.get("params_path") or "runSettings"),
+            "display_connection": str(connection.name if connection else connection_id or ""),
+            "display_model": model_label,
+            "fields": fields,
+        }
 
     @tool
     async def read_canvas_context(selected_node_ids: list[str] | None = None) -> dict[str, Any]:
@@ -202,7 +226,11 @@ def build_canvas_tools(*, user_id: str, run_id: str, canvas_id: str,
         """Validate and persist a complete canvas plan without changing the canvas."""
         semantic_plan = SemanticPlan.model_validate(plan_fields)
         canvas = await (get_canvas() if get_canvas else read_canvas_context.ainvoke({}))
-        patch = semantic_plan_to_patch(semantic_plan, canvas_id, int(canvas.get("canvas_version") or canvas.get("version") or 1), canvas=canvas)
+        version = int(canvas.get("canvas_version") or canvas.get("version") or 1)
+        patch = await asyncio.to_thread(
+            semantic_plan_to_patch, semantic_plan, canvas_id, version,
+            canvas, capability_schema_resolver,
+        )
         assessment = assess_patch(patch)
         saved = await asyncio.to_thread(save_plan, user_id, run_id, semantic_plan.model_dump(mode="json"), status="awaiting_confirmation")
         return {"status": "awaiting_confirmation", "plan_version": saved["version"], "plan": semantic_plan.model_dump(mode="json"), "risk": assessment["risk"], "requires_confirmation": True, "operation_count": assessment["operation_count"]}

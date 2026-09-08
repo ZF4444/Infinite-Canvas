@@ -63,6 +63,51 @@ def test_agent_generation_node_preserves_manual_run_settings_contract():
     assert "provider_id" not in node
 
 
+def test_agent_node_promotes_stable_identifiers_into_run_settings():
+    # A RunningHub app capability is a broad class; the explicit identifier
+    # fields must be promoted into runSettings so the confirmation UI and
+    # executor can resolve the exact app and fetch its role-aware schema.
+    plan = SemanticPlan.model_validate({
+        "goal": "废土 UI",
+        "steps": [{
+            "id": "render",
+            "action": "canvas.create_node",
+            "node": {
+                "semantic_type": "image_generation",
+                "capability": "runninghub.app.image",
+                "connection_id": "legacy:runninghub",
+                "resource_id": "legacy:runninghub:runninghub_app:2087060269230288898",
+                "params": {"runSettings": {"prompt": "hello"}},
+            },
+        }],
+    })
+    run_settings = semantic_plan_to_patch(plan, "canvas-1", 1).operations[0].node["runSettings"]
+    assert run_settings["connection_id"] == "legacy:runninghub"
+    assert run_settings["resource_id"] == "legacy:runninghub:runninghub_app:2087060269230288898"
+    assert "model_id" not in run_settings  # unset identifiers are not injected
+    assert run_settings["prompt"] == "hello"
+
+
+def test_agent_node_identifier_fields_do_not_override_explicit_params():
+    # A deliberate id inside params.runSettings must win over the field-level
+    # identifier so callers can still override the resolved target.
+    plan = SemanticPlan.model_validate({
+        "goal": "override",
+        "steps": [{
+            "id": "render",
+            "action": "canvas.create_node",
+            "node": {
+                "semantic_type": "image_generation",
+                "capability": "image.text_to_image",
+                "model_id": "field-model",
+                "params": {"runSettings": {"model_id": "params-model"}},
+            },
+        }],
+    })
+    run_settings = semantic_plan_to_patch(plan, "canvas-1", 1).operations[0].node["runSettings"]
+    assert run_settings["model_id"] == "params-model"
+
+
 def test_agent_generation_node_accepts_legacy_flat_settings():
     plan = SemanticPlan.model_validate({
         "goal": "image",
@@ -121,6 +166,26 @@ def test_registry_resolves_canonical_capabilities_by_model_id():
     assert registry.resolve("image.text_to_image", requested_model_id="image-1").model_name == "img"
     assert registry.get("video.text_to_video").cost_level == "high"
 
+
+def test_registry_as_dict_groups_shared_capability_into_targets():
+    # Two RunningHub apps share the runninghub.app.image capability class; the
+    # model-facing list must collapse them into one entry whose targets carry
+    # the distinguishing identifiers, not two rows with identical names.
+    registry = CapabilityRegistry([
+        Capability("runninghub.app.image", resource_id="res-a", connection_id="conn", connection_name="RH", model_name="App A"),
+        Capability("runninghub.app.image", resource_id="res-b", connection_id="conn", connection_name="RH", model_name="App B"),
+        Capability("image.text_to_image", model_id="m1", connection_id="conn", connection_name="RH", model_name="Img"),
+    ])
+    rows = registry.as_dict()
+    names = [row["name"] for row in rows]
+    assert names.count("runninghub.app.image") == 1
+    rh = next(row for row in rows if row["name"] == "runninghub.app.image")
+    assert {target["resource_id"] for target in rh["targets"]} == {"res-a", "res-b"}
+    assert {target["display_name"] for target in rh["targets"]} == {"RH / App A", "RH / App B"}
+    # A plain model capability still lists its single target.
+    plain = next(row for row in rows if row["name"] == "image.text_to_image")
+    assert plain["targets"][0]["model_id"] == "m1"
+
 def test_capability_parameters_use_workflow_and_provider_sources():
     from app.services.ai_parameters import capability_parameters
     comfy = capability_parameters(
@@ -141,6 +206,94 @@ def test_capability_parameters_use_workflow_and_provider_sources():
         provider_loader=lambda: [{"id": "runninghub", "enabled": True, "rh_apps": [{"id": "app-1", "fields": [{"nodeId": "1", "fieldName": "ratio", "fieldType": "SELECT", "fieldData": ["1:1", "16:9"]}]}]}],
     )
     assert rh["fields"][0]["options"] == ["1:1", "16:9"]
+
+
+def test_normalize_capability_params_plain_api_places_and_validates():
+    from app.services.ai_parameters import normalize_capability_params
+    schema = {"params_path": "runSettings", "fields": [
+        {"id": "ratio", "type": "dropdown", "options": ["1:1", "9:16"]},
+        {"id": "count", "type": "number", "min": 1, "max": 4},
+        {"id": "prompt", "type": "textarea", "role": "prompt"},
+    ]}
+    params = normalize_capability_params(schema, {"ratio": "9:16", "count": "2", "prompt": "a cat", "bogus": 1})
+    assert params["runSettings"]["ratio"] == "9:16"
+    assert params["runSettings"]["count"] == 2  # coerced to int
+    # prompt is mirrored into the canonical location and dropped from the leaf
+    assert params["runSettings"]["prompt"] == "a cat"
+    # unknown keys not in the field contract are discarded
+    assert "bogus" not in params["runSettings"]
+
+
+def test_normalize_capability_params_runninghub_wraps_values():
+    from app.services.ai_parameters import normalize_capability_params
+    schema = {"params_path": "runSettings.rhParams", "fields": [
+        {"id": "1::text", "type": "text", "role": "prompt"},
+        {"id": "2::steps", "type": "number", "min": 1, "max": 50},
+    ]}
+    params = normalize_capability_params(schema, {"1::text": "hello", "2::steps": 6})
+    # RunningHub fields persist under the {value:...} envelope
+    assert params["runSettings"]["rhParams"]["1::text"] == {"value": "hello"}
+    assert params["runSettings"]["rhParams"]["2::steps"] == {"value": 6}
+    # and the prompt-role field is mirrored to runSettings.prompt (unwrapped)
+    assert params["runSettings"]["prompt"] == "hello"
+
+
+def test_normalize_capability_params_comfy_and_dropdown_validation():
+    from app.services.ai_parameters import normalize_capability_params
+    schema = {"params_path": "runSettings.comfyParams", "fields": [
+        {"id": "seed", "type": "number"},
+        {"id": "sampler", "type": "dropdown", "options": ["euler"]},
+    ]}
+    params = normalize_capability_params(schema, {"seed": 42, "sampler": "euler"})
+    assert params["runSettings"]["comfyParams"]["seed"] == 42
+    assert params["runSettings"]["comfyParams"]["sampler"] == "euler"
+    with pytest.raises(ValueError):
+        normalize_capability_params(schema, {"sampler": "not-an-option"})
+
+
+def test_normalize_capability_params_prompt_generate_writes_node_root_and_skips_reference_inputs():
+    from app.services.ai_parameters import normalize_capability_params
+    schema = {"params_path": "node", "fields": [
+        {"id": "llmInstruction", "type": "textarea"},
+        {"id": "refImage", "type": "image", "role": "image"},
+    ]}
+    params = normalize_capability_params(schema, {"llmInstruction": "summarize", "refImage": "file-1"})
+    assert params["node"]["llmInstruction"] == "summarize"
+    # reference inputs (role image/video/audio) are fed by connections, not values
+    assert "refImage" not in params.get("node", {})
+
+
+def test_semantic_plan_to_patch_normalizes_flat_params_with_resolver():
+    # With a schema resolver, the model may supply a flat {field_id: value} map
+    # and the backend assembles the canonical per-engine structure.
+    plan = SemanticPlan.model_validate({
+        "goal": "rh",
+        "steps": [{
+            "id": "render",
+            "action": "canvas.create_node",
+            "node": {
+                "semantic_type": "image_generation",
+                "capability": "runninghub.app.image",
+                "connection_id": "conn",
+                "resource_id": "res-a",
+                "params": {"1::text": "废土 UI", "runSettingsSchemaVersion": 1},
+            },
+        }],
+    })
+
+    def resolver(node):
+        assert node.capability == "runninghub.app.image"
+        return {"params_path": "runSettings.rhParams", "fields": [
+            {"id": "1::text", "type": "text", "role": "prompt"},
+        ]}
+
+    node = semantic_plan_to_patch(plan, "canvas-1", 1, schema_resolver=resolver).operations[0].node
+    rh_params = node["runSettings"]["rhParams"]
+    assert rh_params["1::text"] == {"value": "废土 UI"}
+    assert node["runSettings"]["prompt"] == "废土 UI"
+    # the hallucinated meta key is dropped, and identifiers are still promoted
+    assert "runSettingsSchemaVersion" not in node["runSettings"]
+    assert node["runSettings"]["resource_id"] == "res-a"
 
 
 

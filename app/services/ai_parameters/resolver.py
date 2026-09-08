@@ -231,9 +231,11 @@ def capability_parameters(*, capability: str, provider_id: str = "", model: str 
             selected = {"id": target.connection.id, "name": target.connection.name, "protocol": target.connection.protocol, "enabled": target.connection.enabled, f"{target.model.kind}_models": [model], "model_aliases": {model: target.model.alias}, "parameter_schema": {"models": {model: model_schema}}}
         providers = [selected]
     else:
-        # Provider-shaped input is retained solely for reading historical
-        # canvas definitions. New runtime requests must provide a canonical
-        # connection/model/resource identifier.
+        # provider_loader is a test-only offline injection point: it lets the
+        # parameter tests exercise every engine's field contract without a
+        # database. No production caller passes it — runtime requests always
+        # provide a canonical connection/model/resource identifier and take the
+        # stable_target branch above.
         if provider_loader is None:
             raise ValueError("capability parameters require connection_id, model_id, or resource_id")
         providers = [item for item in (provider_loader() or []) if isinstance(item, dict) and item.get("enabled", True)]
@@ -288,3 +290,80 @@ def validate_run_settings(*, kind: str, provider_id: str, model: str, settings: 
                 raise ValueError(f"{field_id} is not an allowed value")
         values[field_id] = value
     return {"fields": schema["fields"], "values": values}
+
+
+def _set_path(target: dict[str, Any], path: str, value: Any) -> None:
+    """Assign ``value`` at a dotted ``path`` inside ``target``, creating dicts."""
+    keys = [key for key in str(path or "").split(".") if key]
+    cursor = target
+    for key in keys[:-1]:
+        nxt = cursor.get(key)
+        if not isinstance(nxt, dict):
+            nxt = {}
+            cursor[key] = nxt
+        cursor = nxt
+    if keys:
+        cursor[keys[-1]] = value
+
+
+def _coerce_scalar(field: dict[str, Any], value: Any) -> Any:
+    """Best-effort coercion + range/option validation for one field value."""
+    field_type = str(field.get("type") or "text")
+    if field_type in {"number", "slider"}:
+        try:
+            number = float(value)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"{field.get('id')} must be a number") from exc
+        number = number if (field.get("step") and float(field["step"]) < 1) else int(number)
+        if field.get("min") is not None and number < field["min"]:
+            raise ValueError(f"{field.get('id')} is below the minimum")
+        if field.get("max") is not None and number > field["max"]:
+            raise ValueError(f"{field.get('id')} is above the maximum")
+        return number
+    if field_type == "boolean":
+        return str(value).strip().lower() in {"1", "true", "yes", "on"} if isinstance(value, str) else bool(value)
+    if field_type == "dropdown":
+        text = str(value if value is not None else "")
+        options = [str(option) for option in (field.get("options") or [])]
+        if options and text not in options:
+            raise ValueError(f"{field.get('id')} is not an allowed value")
+        return text
+    return value
+
+
+def normalize_capability_params(schema: dict[str, Any], flat_values: dict[str, Any]) -> dict[str, Any]:
+    """Assemble a canonical ``params`` fragment from a flat ``{field_id: value}`` map.
+
+    The model only supplies values keyed by the field ids returned from
+    ``capability_parameters``; this function owns every engine-specific detail:
+
+    * writes each value at the schema's ``params_path`` (runSettings,
+      runSettings.rhParams, runSettings.comfyParams, or node),
+    * wraps RunningHub app fields in the ``{"value": ...}`` envelope the canvas
+      node persists,
+    * mirrors the ``role="prompt"`` field into the canonical
+      ``runSettings.prompt`` so every engine shares one prompt location,
+    * validates dropdown/number values against the field contract, and
+    * drops keys that are not part of the field contract (e.g. schema-version
+      markers the model may hallucinate).
+    """
+    params: dict[str, Any] = {}
+    params_path = str(schema.get("params_path") or "runSettings")
+    wrapped = params_path.endswith("rhParams")
+    fields = {str(field.get("id")): field for field in (schema.get("fields") or []) if field.get("id")}
+    prompt_text = ""
+    for field_id, field in fields.items():
+        if field_id not in flat_values:
+            continue
+        role = str(field.get("role") or "")
+        # image/video/audio inputs are supplied by node connections, not values.
+        if role in {"image", "video", "audio"}:
+            continue
+        value = _coerce_scalar(field, flat_values[field_id])
+        if role == "prompt" and isinstance(value, str):
+            prompt_text = value
+        stored = {"value": value} if wrapped else value
+        _set_path(params, f"{params_path}.{field_id}", stored)
+    if prompt_text:
+        _set_path(params, "runSettings.prompt", prompt_text)
+    return params

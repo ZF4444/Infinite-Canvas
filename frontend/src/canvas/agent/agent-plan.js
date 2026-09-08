@@ -33,7 +33,24 @@
   // The prompt now lives in params.runSettings.prompt for every engine, mirroring
   // the backend SemanticNode contract. Keep a single accessor so the top prompt
   // box, RunningHub prompt-role fields, and overrides stay in sync.
-  const readPrompt=params=>{const rs=params&&typeof params==='object'?params.runSettings:null;return rs&&typeof rs.prompt==='string'?rs.prompt:'';};
+  const readPrompt=params=>{
+    const rs=params&&typeof params==='object'?params.runSettings:null;
+    if(rs&&typeof rs.prompt==='string'&&rs.prompt)return rs.prompt;
+    // Fallback: an agent plan may store the prompt inside a RunningHub app's
+    // prompt-role field instead of runSettings.prompt. The field key can be a
+    // bare name ("text"/"prompt") or the canonical "nodeId::fieldName" form,
+    // and the value can be a bare string or the {value:...} envelope. Recover
+    // it so the top prompt box is populated even for non-canonical params.
+    const rh=rs&&typeof rs.rhParams==='object'?rs.rhParams:null;
+    if(rh){
+      const unwrap=v=>(v&&typeof v==='object'&&'value'in v?v.value:v);
+      for(const[key,raw]of Object.entries(rh)){
+        const name=String(key).includes('::')?String(key).split('::').pop():String(key);
+        if(name==='text'||name==='prompt'){const v=unwrap(raw);if(typeof v==='string'&&v)return v;}
+      }
+    }
+    return '';
+  };
   const writePrompt=(params,value)=>{const rs=(params.runSettings&&typeof params.runSettings==='object')?params.runSettings:(params.runSettings={});rs.prompt=value;};
   function planValues(step){
     const node=step.node||{},params=clone(node.params);
@@ -132,7 +149,13 @@
     return connection?.protocol==='runninghub';
   }
   function fallbackFields(values,interactive){
-    const fields=[];const walk=(object,prefix='')=>Object.entries(object||{}).forEach(([key,value])=>{const path=prefix?`${prefix}.${key}`:key;if(value&&typeof value==='object'&&!Array.isArray(value))walk(value,path);else if(primitive(value))fields.push({id:path,name:path,type:typeof value==='boolean'?'boolean':typeof value==='number'?'number':'text',default:value,ui:{configurable:true}});});walk(values.params);return fields.map(field=>schemaField(field,values,'',interactive));
+    // These keys are structural/meta or are surfaced elsewhere (prompt box,
+    // node connections), so they must never appear as editable param chips
+    // even when the schema lookup fails and we fall back to walking params.
+    const excludedLeaf=new Set(['runSettingsSchemaVersion','schema_version','prompt','engine','apiKind','genKind','connection_id','model_id','resource_id','rhConfigKey','workflowSource','comfyWorkflow']);
+    const excludedName=new Set(['text','prompt','image','video','audio']);
+    const excluded=path=>{const leaf=String(path).split('.').pop();return excludedLeaf.has(leaf)||excludedName.has(String(leaf).includes('::')?String(leaf).split('::').pop():leaf);};
+    const fields=[];const walk=(object,prefix='')=>Object.entries(object||{}).forEach(([key,value])=>{const path=prefix?`${prefix}.${key}`:key;if(value&&typeof value==='object'&&!Array.isArray(value))walk(value,path);else if(primitive(value)&&!excluded(path))fields.push({id:path,name:path,type:typeof value==='boolean'?'boolean':typeof value==='number'?'number':'text',default:value,ui:{configurable:true}});});walk(values.params);return fields.map(field=>schemaField(field,values,'',interactive));
   }
   async function populateSchema(card,step,values,interactive,request,history=false,promptEl=null){
     const node=step.node||{},settings=values.settings||{};

@@ -48,18 +48,33 @@ class CapabilityRegistry:
         return [item for values in self._candidates.values() for item in values]
 
     def as_dict(self) -> list[dict[str, Any]]:
-        return [{
-            "name": item.name,
-            "description": item.description,
-            "cost_level": item.cost_level,
-            "enabled": item.enabled,
-            "connection_id": item.connection_id,
-            "model_id": item.model_id,
-            "resource_id": item.resource_id,
-            "connection_name": item.connection_name,
-            "model_name": item.model_name,
-            "display_name": f"{item.connection_name} / {item.model_name or item.resource_id}",
-        } for item in self.list()]
+        """Model-facing capability list.
+
+        Capabilities such as ``runninghub.app.image`` are a broad class shared
+        by many concrete targets. Emitting one row per target floods the model
+        with identical ``name`` values and invites it to omit the identifiers
+        that actually pin a target. Instead, group by capability name and hang
+        the distinguishing identifiers off a ``targets`` list, so the model
+        picks a capability and then one explicit target.
+        """
+        grouped: dict[str, dict[str, Any]] = {}
+        for item in self.list():
+            entry = grouped.setdefault(item.name, {
+                "name": item.name,
+                "description": item.description,
+                "cost_level": item.cost_level,
+                "targets": [],
+            })
+            if item.description and not entry["description"]:
+                entry["description"] = item.description
+            entry["targets"].append({
+                "connection_id": item.connection_id,
+                "model_id": item.model_id,
+                "resource_id": item.resource_id,
+                "display_name": f"{item.connection_name} / {item.model_name or item.resource_id}",
+                "enabled": item.enabled,
+            })
+        return list(grouped.values())
 
 
 def from_repository(repository: DatabaseAIRepository | None = None) -> CapabilityRegistry:

@@ -39,7 +39,7 @@ from app.models import (
 )
 from app.models.canvas_agent import SemanticPlan, with_semantic_prompt
 from app.services.business_metadata import load_canvas_payload
-from app.services.canvas_agent.adapter import semantic_plan_to_patch
+from app.services.canvas_agent.adapter import capability_schema_resolver, semantic_plan_to_patch
 from app.services.canvas_agent.artifacts import (
     ARTIFACT_STAGES,
     compile_prompt,
@@ -397,7 +397,9 @@ async def _execute_approved_canvas_patch(user_id: str, run_id: str, canvas_id: s
         plan_json["execution"]["estimated_cost"] = estimate["estimated_cost"]
         plan = SemanticPlan.model_validate(plan_json)
         enforce_plan_limits(plan_json, run_metadata.get("limits"))
-        patch = semantic_plan_to_patch(plan, canvas_id, current_version, canvas=canvas)
+        patch = await asyncio.to_thread(
+            semantic_plan_to_patch, plan, canvas_id, current_version, canvas, capability_schema_resolver,
+        )
         await asyncio.to_thread(update_run, user_id, run_id, status="applying", phase="applying")
         result = await asyncio.to_thread(
             apply_patch_idempotently, user_id, run_id, f"{run_id}:plan:{plan_version}", patch,

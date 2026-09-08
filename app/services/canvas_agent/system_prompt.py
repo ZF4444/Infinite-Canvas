@@ -25,8 +25,10 @@ class CanvasSystemPromptOptions:
 BASE_GUIDELINES = (
     "必须通过工具读取画布和能力，不要臆造节点。",
     "创建节点时 semantic_type 只能是 image_generation、video_generation、workflow_generation 或 group；capability 必须填写 read_capability_registry 返回的能力名，绝不能写入 semantic_type。",
-    "选择 capability、connection 或 model 后，必须先调用 read_capability_parameters 获取字段、枚举、默认值和范围，再调用 propose_canvas_patch。",
-    "read_capability_registry 和 read_capability_parameters 返回的 connection_name、model_label、display_name、display_fields 是给用户看的名称；优先使用这些展示名称理解和描述参数，display_fields[].display_options 中的 label 是选项显示值，value 是提交执行时必须保留的原始值。",
+    "capability 可能是大类（例如 runninghub.app.image 被所有 RunningHub 图像应用共用），无法唯一定位具体应用/模型；read_capability_registry 每个能力下的 targets 列出可选目标，选定其中一个后，把该 target 的 connection_id、resource_id、model_id 原样填入 SemanticNode 的同名字段——RunningHub 应用和工作流用 resource_id 定位，普通模型用 model_id 定位。不要把这些标识符塞进 params。",
+    "选择 capability 与 target 后，必须先调用 read_capability_parameters 获取字段、枚举、默认值和范围，再调用 propose_canvas_patch。",
+    "read_capability_parameters 返回的 fields 已是给用户看的精简视图：name 是字段显示名，options 中的 label 是选项显示值、value 是提交时必须保留的原始值，role=prompt 的字段是提示词、role 为 image/video/audio 的字段是由节点连接提供的引用输入（不要作为普通参数填写）。",
+    "填写 node.params 时，直接按 fields 的 id 平铺给出 {字段id: 原始value}（例如 {\"ratio\": \"9:16\", \"1::text\": \"提示词...\"}）；不要自行嵌套 runSettings/rhParams/comfyParams，也不要包裹 {value:...}——后端会按 params_path 归位、包裹、提取提示词并校验。只填 fields 中列出的字段，其余会被丢弃。",
     "参数工具返回的 params_path 指定字段写入位置；图片/视频写入 node.params.runSettings，ComfyUI 写入 node.params.runSettings.comfyParams，提示词节点字段直接写入 node.params。",
     "需要修改时调用 propose_canvas_patch；该工具只生成提案，不会修改画布。",
     "提案返回 awaiting_confirmation 后必须等待用户确认；不要在规划阶段调用任何执行工具。用户批准后，系统会自动调用专用执行工具并记录执行结果。",

@@ -1,7 +1,10 @@
 from __future__ import annotations
 from copy import deepcopy
 from typing import Any
+from app.core.logging import get_logger
 from app.models.canvas_agent import CanvasPatch, SemanticPlan, semantic_prompt
+
+logger = get_logger("canvas_agent_adapter")
 
 _NODE_TYPES = {
     "prompt": "smart-prompt", "smart-prompt": "smart-prompt",
@@ -33,8 +36,8 @@ def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any
     return result
 
 
-def _canonical_node_data(node: Any, node_type: str) -> dict[str, Any]:
-    params = dict(node.params or {})
+def _canonical_node_data(node: Any, node_type: str, normalized_params: dict[str, Any] | None = None) -> dict[str, Any]:
+    params = dict(normalized_params if normalized_params is not None else (node.params or {}))
     defaults = _GENERATION_DEFAULTS.get(node.semantic_type, {})
     node_data = _deep_merge(defaults, params)
 
@@ -51,6 +54,15 @@ def _canonical_node_data(node: Any, node_type: str) -> dict[str, Any]:
         for key in list(node_data):
             if key in setting_keys:
                 run_settings[key] = node_data.pop(key)
+        # Promote the explicit SemanticNode identifiers into runSettings so the
+        # confirmation UI and executor can resolve the exact provider target.
+        # A capability like runninghub.app.image is a broad class shared by many
+        # apps; only these ids pin the concrete app/workflow/model. Params that
+        # already carry an id win, so a deliberate override in params is kept.
+        for key in ("connection_id", "resource_id", "model_id"):
+            value = str(getattr(node, key, "") or "")
+            if value and not run_settings.get(key):
+                run_settings[key] = value
         node_data["runSettings"] = run_settings
 
     node_data.update({
@@ -117,7 +129,31 @@ def _resolve_placement(requested: Any, fallback: dict[str, float], occupied: lis
                 return candidate
     raise ValueError("unable to place agent-created node without overlap")
 
-def semantic_plan_to_patch(plan: SemanticPlan, canvas_id: str, base_version: int, canvas: dict[str, Any] | None = None) -> CanvasPatch:
+def capability_schema_resolver(node: Any) -> dict[str, Any] | None:
+    """Resolve the field contract for a plan node via capability_parameters.
+
+    Shared by the propose and apply paths so both assemble params identically.
+    Returns None when the node lacks a capability/target or the lookup fails,
+    which makes the adapter fall back to pass-through assembly.
+    """
+    capability = str(getattr(node, "capability", "") or "")
+    connection_id = str(getattr(node, "connection_id", "") or "")
+    resource_id = str(getattr(node, "resource_id", "") or "")
+    model_id = str(getattr(node, "model_id", "") or "")
+    if not capability or not (connection_id or resource_id or model_id):
+        return None
+    try:
+        from app.services.ai_parameters import capability_parameters
+        return capability_parameters(
+            capability=capability, connection_id=connection_id,
+            model_id=model_id, resource_id=resource_id,
+        )
+    except Exception:
+        return None
+
+
+def semantic_plan_to_patch(plan: SemanticPlan, canvas_id: str, base_version: int, canvas: dict[str, Any] | None = None,
+                           schema_resolver: Any = None) -> CanvasPatch:
     refs: dict[str, str] = {}
     operations: list[dict[str, Any]] = []
     existing = list((canvas or {}).get("nodes") or [])
@@ -137,7 +173,21 @@ def semantic_plan_to_patch(plan: SemanticPlan, canvas_id: str, base_version: int
             # Defaults mirror the manual creation path, while params may supply
             # a selected workflow/model. Merge nested runSettings so the model
             # cannot accidentally erase engine/apiKind or workflow defaults.
-            node_data = _canonical_node_data(node, node_type)
+            #
+            # When a schema resolver is available and the model supplied a flat
+            # {field_id: value} map (no runSettings envelope yet), the backend
+            # owns the assembly: place values at the right params_path, wrap
+            # RunningHub fields, extract the prompt, validate, and drop unknown
+            # keys. Plans that already carry a nested runSettings (historical or
+            # manually shaped) pass through unchanged.
+            normalized_params = None
+            raw_params = dict(node.params or {})
+            if schema_resolver is not None and "runSettings" not in raw_params:
+                schema = schema_resolver(node)
+                if schema:
+                    from app.services.ai_parameters import normalize_capability_params
+                    normalized_params = normalize_capability_params(schema, raw_params)
+            node_data = _canonical_node_data(node, node_type, normalized_params)
             fallback = {
                 "x": next_x + (create_index % 3) * _LAYOUT_COLUMN_GAP,
                 "y": next_y + (create_index // 3) * _LAYOUT_ROW_GAP,
@@ -149,5 +199,20 @@ def semantic_plan_to_patch(plan: SemanticPlan, canvas_id: str, base_version: int
         elif step.action in {"canvas.update_node_params", "canvas.replace_node_content", "canvas.run_node", "canvas.run_group"}:
             operations.append({"op": step.action.removeprefix("canvas."), "node_id": step.target_node_id, "params": (step.node.params if step.node else {}), "content": (semantic_prompt(step.node.params) if step.node else "")})
         elif step.action == "canvas.connect":
-            operations.append({"op": "add_connection", "from_ref": refs.get(step.from_step, step.from_step), "to_ref": refs.get(step.to_step, step.to_step), "connection": {"kind": step.relation or "default"}})
+            source = refs.get(step.from_step, step.from_step)
+            target = refs.get(step.to_step, step.to_step)
+            # Endpoints may be a create step id (resolved via refs) or an
+            # existing canvas node's real id (passed through unchanged). A
+            # missing endpoint or a self-loop is invalid; the executor would
+            # reject it and fail the whole patch. Drop it here, but log the
+            # discarded edge so a malformed plan does not silently lose wiring.
+            if not source or not target or source == target:
+                logger.warning(
+                    "dropping invalid canvas.connect step: step_id=%s from_step=%r to_step=%r "
+                    "resolved_source=%r resolved_target=%r reason=%s",
+                    step.id, step.from_step, step.to_step, source, target,
+                    "self_loop" if source and source == target else "missing_endpoint",
+                )
+                continue
+            operations.append({"op": "add_connection", "from_ref": source, "to_ref": target, "connection": {"kind": step.relation or "default"}})
     return CanvasPatch(canvas_id=canvas_id, base_version=base_version, operations=operations)

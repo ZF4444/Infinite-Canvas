@@ -90,11 +90,14 @@ SemanticNodeType = Literal[
 
 class SemanticNode(ProtocolModel):
     semantic_type: SemanticNodeType = Field(
-        description="Canvas node kind. Use image_generation for image nodes, video_generation for video nodes"
+        description="Canvas node kind. Prefer these canonical values: image_generation for image nodes, video_generation for video nodes, workflow_generation for ComfyUI workflow nodes, prompt for text/prompt nodes, group for a node group. The values smart-image, smart-prompt, and smart-group are accepted legacy aliases of image_generation, prompt, and group respectively; do not use them for new plans."
     )
     title: str = Field(default="", description="Short node title.")
-    capability: str = Field(default="", description="Capability selected from read_capability_registry, for example image.text_to_image or prompt.generate.")
-    params: NativeJsonObject = Field(default_factory=dict, description="Capability-specific parameters as a JSON object. The prompt text lives under runSettings.prompt; other keys depend on the chosen capability, e.g. {\"runSettings\": {\"prompt\": \"a cat\", \"ratio\": \"16:9\"}}.")
+    capability: str = Field(default="", description="Capability selected from read_capability_registry, for example image.text_to_image or prompt.generate. A capability can be a broad class (e.g. runninghub.app.image is shared by every RunningHub image app), so it does not by itself identify a specific app or model; set connection_id/resource_id/model_id to pin the exact target.")
+    connection_id: str = Field(default="", description="Connection id copied verbatim from the chosen read_capability_registry entry. Required whenever you select a specific provider target.")
+    resource_id: str = Field(default="", description="Resource id copied verbatim from the chosen read_capability_registry entry. Set this for executable resources such as a RunningHub app (runninghub.app.*) or a hosted ComfyUI workflow to pin the exact app/workflow. Leave empty for plain model capabilities.")
+    model_id: str = Field(default="", description="Model id copied verbatim from the chosen read_capability_registry entry. Set this for plain model capabilities such as image.text_to_image or video.text_to_video. Leave empty for RunningHub apps and workflows, which are pinned by resource_id.")
+    params: NativeJsonObject = Field(default_factory=dict, description="Capability-specific parameters as a JSON object. The prompt text lives under runSettings.prompt; other keys depend on the chosen capability, e.g. {\"runSettings\": {\"prompt\": \"a cat\", \"ratio\": \"16:9\"}}. Do not put connection_id/resource_id/model_id here; use the dedicated fields instead.")
 
     @model_validator(mode="before")
     @classmethod
@@ -124,10 +127,10 @@ class SemanticStep(ProtocolModel):
         description="Canvas operation to perform. create_node adds a new node; update_node_params changes params on an existing node; "
         "replace_node_content replaces prompt text; connect links two nodes; run_node/run_group triggers execution."
     )
-    node: SemanticNode | None = Field(default=None, description="Node definition for create_node and update/replace actions. Omit for connect and run actions.")
-    target_node_id: str = Field(default="", description="Existing canvas node ID for update, replace, or run actions. Leave empty when creating a new node.")
-    from_step: str = Field(default="", description="Step id of the source node for a connect action.")
-    to_step: str = Field(default="", description="Step id of the target node for a connect action.")
+    node: SemanticNode | None = Field(default=None, description="Node definition. Required for create_node (uses semantic_type, title, capability, params). For update_node_params and replace_node_content only node.params is read; other fields are ignored, so set semantic_type to match the target node and put changes under params. Omit entirely for connect and run actions.")
+    target_node_id: str = Field(default="", description="Real id of an existing canvas node for update_node_params, replace_node_content, and run_node actions, or an existing group id for run_group. Leave empty when creating a new node; connect actions use from_step/to_step instead.")
+    from_step: str = Field(default="", description="Source endpoint of a connect action. Use a step id from this plan to reference a node created here, or an existing canvas node's real id (from read_canvas_context) to connect from a node already on the canvas. Must differ from to_step.")
+    to_step: str = Field(default="", description="Target endpoint of a connect action. Use a step id from this plan to reference a node created here, or an existing canvas node's real id (from read_canvas_context) to connect to a node already on the canvas. Must differ from from_step.")
     relation: str = Field(default="", description="Edge label for a connect action, e.g. \"output\" or \"reference\".")
     placement: NativeJsonObject = Field(default_factory=dict, description="Canvas layout hint as a JSON object, e.g. {\"x\": 100, \"y\": 200}. Omit to let the canvas auto-place.")
 

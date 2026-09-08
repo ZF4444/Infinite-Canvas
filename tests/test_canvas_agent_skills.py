@@ -63,7 +63,15 @@ def test_capability_parameters_display_lookup_runs_off_event_loop(monkeypatch):
 
     monkeypatch.setattr("app.ai.database_repository.DatabaseAIRepository", Repository)
     monkeypatch.setattr(canvas_tools, "capability_parameters", lambda **_kwargs: {
-        "fields": [{"id": "quality", "options": ["standard"], "default": "standard"}],
+        "capability": "image.text_to_image",
+        "params_path": "runSettings",
+        "fields": [
+            {"id": "quality", "name": "Quality", "type": "dropdown", "options": ["standard", "hd"],
+             "option_labels": ["标准", "高清"], "default": "standard",
+             "execution": {"supported": True, "target": "quality", "transform": "quality"},
+             "ui": {"configurable": True}},
+            {"id": "prompt", "name": "提示词", "type": "textarea", "role": "prompt", "default": ""},
+        ],
     })
     tool = next(item for item in build_canvas_tools(user_id="user", run_id="run", canvas_id="canvas") if item.name == "read_capability_parameters")
 
@@ -71,6 +79,15 @@ def test_capability_parameters_display_lookup_runs_off_event_loop(monkeypatch):
 
     assert result["display_connection"] == "Banana"
     assert result["display_model"] == "Banan 2"
+    assert result["params_path"] == "runSettings"
+    quality = next(field for field in result["fields"] if field["id"] == "quality")
+    # Execution/UI metadata and duplicated raw options must not leak to the model.
+    assert "execution" not in quality
+    assert "ui" not in quality
+    assert "option_labels" not in quality
+    assert quality["options"] == [{"value": "standard", "label": "标准"}, {"value": "hd", "label": "高清"}]
+    prompt = next(field for field in result["fields"] if field["id"] == "prompt")
+    assert prompt["role"] == "prompt"
 
 
 def test_execution_tool_records_a_tool_message_and_execution_result():
