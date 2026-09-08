@@ -255,9 +255,10 @@ def build_canvas_tools(*, user_id: str, run_id: str, canvas_id: str,
         })
 
     tools = [
-        read_canvas_context, read_capability_registry, read_capability_parameters, read_artifact,
+        # read_canvas_context,
+        # read_capability_registry, read_capability_parameters, read_artifact,
         read_canvas_skill, read_canvas_skill_file,
-        propose_canvas_patch, request_clarification,
+        # propose_canvas_patch, request_clarification,
     ]
     # Planning graphs must not expose the mutation tool. The graph only adds
     # it to its deterministic post-confirmation ToolNode.
