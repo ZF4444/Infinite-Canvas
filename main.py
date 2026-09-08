@@ -57,7 +57,7 @@ _load_bootstrap_env()
 import httpx
 from PIL import Image
 from io import BytesIO
-from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect, UploadFile, File, Header, Request, Response
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect, UploadFile, File, Form, Header, Request, Response
 from fastapi.exceptions import RequestValidationError
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, Response, StreamingResponse, JSONResponse, RedirectResponse
@@ -2990,8 +2990,13 @@ async def runninghub_query(taskId: str = "", persistOutputs: bool = True, connec
             async with shared_http_client(timeout=httpx.Timeout(connect=20.0, read=240.0, write=30.0, pool=20.0)) as client:
                 local_url = await runninghub_store_remote_output(client, remote)
         except Exception as exc:
-            logger.exception("failed to persist RunningHub output")
-            raise HTTPException(status_code=502, detail=f"RunningHub 输出写入 MinIO 失败：{exc}") from exc
+            # A completed RunningHub task already has a usable signed output
+            # URL. Do not hide it from the user when the optional local mirror
+            # fails because the upstream CDN breaks the response stream.
+            logger.warning("failed to persist RunningHub output; returning remote URL", exc_info=True)
+            urls.append(remote)
+            media_items.append(await run_storage_io(media_response_item, remote, "", kind))
+            continue
         urls.append(local_url)
         media_items.append(await run_storage_io(media_response_item, local_url, "", kind))
     status = runninghub_normalized_status(raw, code, urls)
@@ -3082,7 +3087,7 @@ async def runninghub_upload_asset(payload: RunningHubUploadAssetRequest):
 
 
 @app.post("/api/runninghub/upload-asset-file")
-async def runninghub_upload_asset_file(file: UploadFile = File(...), connection_id: str = "", resource_id: str = ""):
+async def runninghub_upload_asset_file(file: UploadFile = File(...), connection_id: str = Form(""), resource_id: str = Form("")):
     if not connection_id and not resource_id:
         raise HTTPException(status_code=400, detail="RunningHub 素材上传必须指定 connection_id 或 resource_id")
     from app.ai.database_repository import DatabaseAIRepository

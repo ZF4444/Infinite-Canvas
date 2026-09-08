@@ -414,7 +414,15 @@
   },
   "Body_runninghub_upload_asset_file_api_runninghub_upload_asset_file_post": {
     "properties": {
+      "connection_id": {
+        "default": "",
+        "type": "string"
+      },
       "file": {
+        "type": "string"
+      },
+      "resource_id": {
+        "default": "",
         "type": "string"
       }
     },

@@ -843,9 +843,11 @@
             if (!uploadedFile) throw new Error("Please upload an image first");
 
             updateCloudProgress({ status: "Uploading...", progress: 0, total: 100 });
-            const fileName = await RunningHubClient.uploadFile(uploadedFile, uploadedFile.name || 'angle-source.png');
+            const target = await RunningHubClient.resolveTarget(RH_WEBAPP_ID);
+            const fileName = await RunningHubClient.uploadFile(uploadedFile, uploadedFile.name || 'angle-source.png', target);
             updateCloudProgress({ status: "Queueing...", progress: 0, total: 100 });
             const taskId = await RunningHubClient.submitTask({
+                ...target,
                 webappId: RH_WEBAPP_ID,
                 nodeInfoList: [
                     { nodeId: "13", fieldName: "image", fieldValue: fileName, description: "image" },
@@ -854,6 +856,7 @@
                 instanceType: "default"
             });
             const data = await RunningHubClient.pollTask(taskId, {
+                ...target,
                 onUpdate(task) {
                     if (task.status === 'RUNNING') updateCloudProgress({ status: "Generating...", progress: 60, total: 100 });
                 }
