@@ -251,6 +251,17 @@ def test_normalize_capability_params_comfy_and_dropdown_validation():
         normalize_capability_params(schema, {"sampler": "not-an-option"})
 
 
+def test_normalize_capability_params_tolerates_string_number_bounds():
+    # RunningHub upstream may return min/max/step as strings; coercion must not
+    # raise a TypeError when comparing the value against them.
+    from app.services.ai_parameters import normalize_capability_params
+    schema = {"params_path": "runSettings.rhParams", "fields": [
+        {"id": "3::value", "type": "number", "min": "1", "max": "50", "step": ""},
+    ]}
+    params = normalize_capability_params(schema, {"3::value": 6})
+    assert params["runSettings"]["rhParams"]["3::value"] == {"value": 6}
+
+
 def test_normalize_capability_params_prompt_generate_writes_node_root_and_skips_reference_inputs():
     from app.services.ai_parameters import normalize_capability_params
     schema = {"params_path": "node", "fields": [

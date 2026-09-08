@@ -314,10 +314,22 @@ def _coerce_scalar(field: dict[str, Any], value: Any) -> Any:
             number = float(value)
         except (TypeError, ValueError) as exc:
             raise ValueError(f"{field.get('id')} must be a number") from exc
-        number = number if (field.get("step") and float(field["step"]) < 1) else int(number)
-        if field.get("min") is not None and number < field["min"]:
+        # min/max/step may arrive as strings (RunningHub upstream returns them
+        # as-is). Coerce to numbers before comparing; treat unparseable bounds
+        # as absent rather than raising a type error mid-normalization.
+        def _bound(key: str) -> float | None:
+            raw = field.get(key)
+            if raw is None or raw == "":
+                return None
+            try:
+                return float(raw)
+            except (TypeError, ValueError):
+                return None
+        step, lower, upper = _bound("step"), _bound("min"), _bound("max")
+        number = number if (step is not None and step < 1) else int(number)
+        if lower is not None and number < lower:
             raise ValueError(f"{field.get('id')} is below the minimum")
-        if field.get("max") is not None and number > field["max"]:
+        if upper is not None and number > upper:
             raise ValueError(f"{field.get('id')} is above the maximum")
         return number
     if field_type == "boolean":
