@@ -241,7 +241,7 @@ async function uploadFiles(files){
 }
 function appendImagesToSmartNode(uploaded, targetId='', opts={}){
     const images = [...(uploaded || [])].filter(file => file?.url);
-    if(!images.length) return;
+    if(!images.length) return null;
     let node = nodes.find(n => n.id === targetId) || selectedNode();
     if(isSmartGroupNode(node)){
         node.images = [...(node.images || []), ...images.map(file => ({...file, kind:file.kind || mediaKindForItem(file)}))];
@@ -251,7 +251,7 @@ function appendImagesToSmartNode(uploaded, targetId='', opts={}){
         selectedId = node.id;
         render();
         scheduleSave();
-        return;
+        return node;
     }
     if(node && !isSmartImageNode(node)) node = null;
     if(opts.forceNew) node = null;
@@ -275,16 +275,19 @@ function appendImagesToSmartNode(uploaded, targetId='', opts={}){
     selectedId = node.id;
     render();
     scheduleSave();
+    return node;
 }
 async function handleFiles(files, targetId='', opts={}){
     try {
         const fileList = [...(files || [])].filter(isSupportedUploadFile);
-        if(!fileList.length) return;
+        if(!fileList.length) return null;
         const uploaded = await uploadFiles(fileList);
-        if(!uploaded.length) return;
+        if(!uploaded.length) return null;
         if(!opts.skipUndo) pushUndo();
-        appendImagesToSmartNode(uploaded.map((file, index) => ({...file, kind:file.kind || mediaKindForFile(fileList[index])})), targetId, opts);
-    } catch(e) { toast(e.message || tr('smart.toastUploadFail')); }
+        const normalized = uploaded.map((file, index) => ({...file, kind:file.kind || mediaKindForFile(fileList[index])}));
+        const node = appendImagesToSmartNode(normalized, targetId, opts);
+        return {uploaded:normalized, node};
+    } catch(e) { toast(e.message || tr('smart.toastUploadFail')); return null; }
 }
 async function importSmartLocalImages(paths){
     if(!paths?.length) return [];

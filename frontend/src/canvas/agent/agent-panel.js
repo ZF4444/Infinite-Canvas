@@ -12,6 +12,8 @@
   let referencePickerOpen = false;
   let referencePickerIndex = 0;
   let referencePickerSource = 'canvas';
+  let agentDropRange = null;
+  let agentDropDepth = 0;
   const status = value => { $('canvasAgentStatus').textContent=value || ''; };
   const planDecisionKey = (runId, version) => `${runId || ''}:${version || ''}`;
   const planStatusLabel = status => ({confirmed:'已确认',rejected:'已取消'})[String(status || '')] || '';
@@ -336,6 +338,57 @@
   function textBeforeAgentCaret(){ const input=$('canvasAgentInput'), selection=window.getSelection(); if(!selection?.rangeCount||!input.contains(selection.anchorNode))return '';const range=selection.getRangeAt(0).cloneRange();range.selectNodeContents(input);range.setEnd(selection.anchorNode,selection.anchorOffset);return range.toString(); }
   function handleInput(){ if(/@$/.test(textBeforeAgentCaret())){referencePickerOpen=true;referencePickerSource=inputMentionCandidates().length?'canvas':'asset';referencePickerIndex=0;renderReferencePicker();} else closeReferencePicker(); }
   function handleInputKeydown(event){ if(referencePickerOpen){const total=mentionCandidates().length;if((event.key==='ArrowDown'||event.key==='ArrowUp')&&total){event.preventDefault();referencePickerIndex=(referencePickerIndex+(event.key==='ArrowDown'?1:-1)+total)%total;renderReferencePicker();return;}if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();insertReferenceMention($('canvasAgentReferencePicker')._items?.[referencePickerIndex]);return;}if(event.key==='Escape'){event.preventDefault();closeReferencePicker();return;}}if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();send();} }
+  function captureAgentDropRange(){ const input=$('canvasAgentInput'), selection=window.getSelection(); if(!input||!selection?.rangeCount)return null; const range=selection.getRangeAt(0); return input.contains(range.startContainer) ? range.cloneRange() : null; }
+  function insertAgentDropReference(ref, range){
+    const input=$('canvasAgentInput');
+    if(!input||!ref?.url)return;
+    if(!state.references.some(item=>(item.url||item.src)===(ref.url||ref.src))) state.references.push(ref);
+    const token=document.createElement('span'); token.className='mention-image-token'; token.contentEditable='false';
+    token.dataset.url=ref.url||ref.src||''; token.dataset.name=ref.name||ref.label||'图片'; token.dataset.kind=ref.kind||'image';
+    token.dataset.nodeId=ref.nodeId||''; token.dataset.imageIndex=String(ref.imageIndex??'');
+    const image=document.createElement('img'); image.src=ref.thumbnail||ref.url||ref.src||''; image.alt=token.dataset.name; image.draggable=false;
+    const label=document.createElement('span'); label.textContent=token.dataset.name; token.append(image,label);
+    token.addEventListener('click', event=>{ event.preventDefault(); focusReference(ref); });
+    const targetRange=range && input.contains(range.startContainer) ? range : (()=>{ const r=document.createRange(); r.selectNodeContents(input); r.collapse(false); return r; })();
+    targetRange.deleteContents(); targetRange.insertNode(token); const spacer=document.createTextNode(' '); token.after(spacer); targetRange.setStartAfter(spacer); targetRange.collapse(true);
+    const selection=window.getSelection(); selection?.removeAllRanges(); selection?.addRange(targetRange); renderMentions(); input.focus();
+  }
+  function setAgentDropState(active){ $('canvasAgentInput')?.classList.toggle('drag-over',Boolean(active)); }
+  function isAgentImageFile(file){ return String(file?.type||'').startsWith('image/') || /\.(png|jpe?g|webp|gif)$/i.test(String(file?.name||'')); }
+  function agentDropHasImage(dataTransfer){
+    const files=[...(dataTransfer?.files||[])];
+    if(files.length) return files.some(isAgentImageFile);
+    const items=[...(dataTransfer?.items||[])];
+    if(items.some(item=>item.kind==='file')) return true;
+    return typeof smartLocalImagePathsFromDataTransfer==='function' && smartLocalImagePathsFromDataTransfer(dataTransfer).length>0;
+  }
+  function agentInputDragEnter(event){ if(!agentDropHasImage(event.dataTransfer))return; event.preventDefault(); event.stopPropagation(); agentDropDepth+=1; setAgentDropState(true); }
+  function agentInputDragOver(event){ if(!agentDropHasImage(event.dataTransfer))return; event.preventDefault(); event.stopPropagation(); event.dataTransfer.dropEffect='copy'; setAgentDropState(true); }
+  function agentInputDragLeave(event){ if(!agentDropHasImage(event.dataTransfer))return; event.preventDefault(); event.stopPropagation(); agentDropDepth=Math.max(0,agentDropDepth-1); if(!agentDropDepth)setAgentDropState(false); }
+  async function agentInputDrop(event){
+    if(!agentDropHasImage(event.dataTransfer))return;
+    event.preventDefault(); event.stopPropagation(); agentDropDepth=0; setAgentDropState(false);
+    const input=$('canvasAgentInput'); agentDropRange=captureAgentDropRange() || agentDropRange;
+    try {
+      const payload=await resolveSmartImageDropPayload(event.dataTransfer);
+      let result=null;
+      if(payload.type==='files') result=await handleFiles(payload.files.filter(isAgentImageFile), '', {forceNew:true});
+      else if(payload.type==='localPaths') {
+        const imported=await importSmartLocalImages(payload.localPaths);
+        const valid=imported.filter(file=>file?.url);
+        if(valid.length){ pushUndo(); result={uploaded:valid,node:appendImagesToSmartNode(valid,'',{forceNew:true})}; }
+      }
+      if(!result?.uploaded?.length||!result.node)return;
+      const images=result.node.images||[];
+      result.uploaded.forEach(file=>{
+        const imageIndex=Math.max(0,images.findIndex(image=>(file.file_id&&image.file_id===file.file_id)||(file.url&&image.url===file.url)));
+        insertAgentDropReference({...file,source:'canvas',nodeId:result.node.id,imageIndex,thumbnail:file.thumbnail||file.url,previewSrc:file.url},agentDropRange);
+        agentDropRange=captureAgentDropRange();
+      });
+      status(`已上传 ${result.uploaded.length} 张图片，并添加到输入图`);
+    } catch(error) { system(error.message || '图片上传失败'); }
+    finally { agentDropRange=null; input?.focus(); }
+  }
   function previewReferenceMention(event){ const token=event.target.closest?.('.mention-image-token'), preview=$('mentionPreview'); if(!token||!preview)return; if(token.dataset.empty==='true'||!token.dataset.url){preview.style.display='none';return;} let media=preview.querySelector('img,video'); const isVideo=token.dataset.kind==='video'||(typeof isVideoMediaItem==='function'&&isVideoMediaItem({url:token.dataset.url,kind:token.dataset.kind})); if(isVideo&&media?.tagName?.toLowerCase()!=='video'){media?.replaceWith(document.createElement('video'));media=preview.querySelector('video');}else if(!isVideo&&media?.tagName?.toLowerCase()!=='img'){media?.replaceWith(document.createElement('img'));media=preview.querySelector('img');} if(isVideo){media.muted=true;media.loop=true;media.playsInline=true;media.preload='metadata';media.src=token.dataset.url||'';media.play?.().catch(()=>{});}else{media.src=token.dataset.url||'';media.alt='preview';} const rect=token.getBoundingClientRect(); preview.style.left=`${Math.min(window.innerWidth-236,rect.left)}px`;preview.style.top=`${Math.min(window.innerHeight-236,rect.bottom+8)}px`;preview.style.display='block'; }
   function hideReferenceMentionPreview(event){ if(!event.target.closest?.('.mention-image-token'))return; const preview=$('mentionPreview'); if(!preview)return; const media=preview.querySelector('img,video'); preview.style.display='none';media?.pause?.();media?.removeAttribute('src');media?.load?.(); }
   async function send() { closeReferencePicker(); const input=$('canvasAgentInput'), content=composerText(); if (!content || state.busy) return; const references=state.references.map(item=>({node_id:item.nodeId||'',image_index:item.imageIndex ?? -1,empty:Boolean(item.empty),source:item.source||'canvas',url:item.url||item.src||'',thumbnail:item.thumbnail||item.src||'',preview_url:item.previewSrc||item.url||item.src||'',name:item.name||item.label||''})); const referenceIds=references.map(item=>item.node_id).filter(Boolean); state.busy=true; input.innerHTML=''; state.references=[]; renderMentions(); messageFollow=true; message(content,'user',references); status('正在受理请求…'); try { await ensureModelsLoaded(); await ensureRun(); window.CanvasAgentEvents.start(); const selection=modelSelection(); const data=await window.CanvasAgentClient.send({content,connection_id:selection.connection_id,model_id:selection.model_id,selected_node_ids:window.CanvasAgentBridge.selectedNodeIds(),mention_node_ids:[...new Set([...state.mentions,...referenceIds]) ],media_references:references}); state.operationId=data.operation_id || ''; status('请求已受理，正在准备 Agent…'); window.CanvasAgentEvents.start(); } catch(e) { system(e.message); status('error'); } finally { state.busy=false; } }
@@ -357,7 +410,7 @@
       state.references.push(reference); renderMentions(); $('canvasAgentInput').focus();
     });
   }
-  async function init() { try { const response=await fetch('/api/access-control/me',{credentials:'same-origin'}); const me=response.ok ? await response.json() : {}; if(!Array.isArray(me.pages)||!me.pages.includes('canvas-agent')){ $('canvasAgentToggle')?.remove(); panel?.remove(); return; } $('canvasAgentToggle').hidden=false; } catch (_) { $('canvasAgentToggle')?.remove(); panel?.remove(); return; } attachAuxiliaryPanels(); loadModelSelection(); $('canvasAgentToggle').addEventListener('click',()=>{panel.hidden=!panel.hidden;if(!panel.hidden){messageFollow=true;ensureModelsLoaded();refreshRuns();window.CanvasAgentEvents.recover();requestAnimationFrame(()=>{const messages=$('canvasAgentMessages');if(messages)messages.scrollTop=messages.scrollHeight;});}}); ['pointerdown','mousedown','dblclick'].forEach(type=>panel.addEventListener(type,event=>event.stopPropagation())); panel.addEventListener('click', event=>{ const link=event.target.closest('.canvas-agent-node-link'); if(link){ event.preventDefault(); event.stopPropagation(); window.CanvasAgentBridge.focusNode(link.dataset.nodeId); } else event.stopPropagation(); }); panel.addEventListener('wheel', event=>event.stopPropagation(), {capture:true,passive:true}); $('canvasAgentClose').addEventListener('click',()=>{panel.hidden=true; window.CanvasAgentBridge.endReferencePicking();}); $('canvasAgentRunSelect').addEventListener('change',event=>window.CanvasAgentEvents.switchRun(event.target.value)); $('canvasAgentNewRun').addEventListener('click',newRun); $('canvasAgentModelSelect').addEventListener('change',onModelChange); $('canvasAgentSend').addEventListener('click',send); $('canvasAgentCancel').addEventListener('click',cancel); $('canvasAgentAddCanvasContent').addEventListener('click',toggleCanvasReferencePicking); $('canvasAgentInput').addEventListener('input',handleInput); $('canvasAgentInput').addEventListener('keydown',handleInputKeydown); $('canvasAgentInput').addEventListener('mouseover',previewReferenceMention); $('canvasAgentInput').addEventListener('mouseout',hideReferenceMentionPreview); window.addEventListener('canvas-agent-reference-picking-changed',event=>setCanvasReferencePicking(event.detail?.active)); window.addEventListener('beforeunload',()=>{window.CanvasAgentEvents.stop();window.CanvasAgentBridge.endReferencePicking();}); renderMentions(); ensureModelsLoaded(); refreshRuns(); window.CanvasAgentEvents.recover(); }
+  async function init() { try { const response=await fetch('/api/access-control/me',{credentials:'same-origin'}); const me=response.ok ? await response.json() : {}; if(!Array.isArray(me.pages)||!me.pages.includes('canvas-agent')){ $('canvasAgentToggle')?.remove(); panel?.remove(); return; } $('canvasAgentToggle').hidden=false; } catch (_) { $('canvasAgentToggle')?.remove(); panel?.remove(); return; } attachAuxiliaryPanels(); loadModelSelection(); $('canvasAgentToggle').addEventListener('click',()=>{panel.hidden=!panel.hidden;if(!panel.hidden){messageFollow=true;ensureModelsLoaded();refreshRuns();window.CanvasAgentEvents.recover();requestAnimationFrame(()=>{const messages=$('canvasAgentMessages');if(messages)messages.scrollTop=messages.scrollHeight;});}}); ['pointerdown','mousedown','dblclick'].forEach(type=>panel.addEventListener(type,event=>event.stopPropagation())); panel.addEventListener('click', event=>{ const link=event.target.closest('.canvas-agent-node-link'); if(link){ event.preventDefault(); event.stopPropagation(); window.CanvasAgentBridge.focusNode(link.dataset.nodeId); } else event.stopPropagation(); }); panel.addEventListener('wheel', event=>event.stopPropagation(), {capture:true,passive:true}); $('canvasAgentClose').addEventListener('click',()=>{panel.hidden=true; window.CanvasAgentBridge.endReferencePicking();}); $('canvasAgentRunSelect').addEventListener('change',event=>window.CanvasAgentEvents.switchRun(event.target.value)); $('canvasAgentNewRun').addEventListener('click',newRun); $('canvasAgentModelSelect').addEventListener('change',onModelChange); $('canvasAgentSend').addEventListener('click',send); $('canvasAgentCancel').addEventListener('click',cancel); $('canvasAgentAddCanvasContent').addEventListener('click',toggleCanvasReferencePicking); $('canvasAgentInput').addEventListener('input',handleInput); $('canvasAgentInput').addEventListener('keydown',handleInputKeydown); $('canvasAgentInput').addEventListener('mouseover',previewReferenceMention); $('canvasAgentInput').addEventListener('mouseout',hideReferenceMentionPreview); const agentInput=$('canvasAgentInput'); agentInput?.addEventListener('dragenter',agentInputDragEnter); agentInput?.addEventListener('dragover',agentInputDragOver); agentInput?.addEventListener('dragleave',agentInputDragLeave); agentInput?.addEventListener('drop',agentInputDrop); window.addEventListener('canvas-agent-reference-picking-changed',event=>setCanvasReferencePicking(event.detail?.active)); window.addEventListener('beforeunload',()=>{window.CanvasAgentEvents.stop();window.CanvasAgentBridge.endReferencePicking();}); renderMentions(); ensureModelsLoaded(); refreshRuns(); window.CanvasAgentEvents.recover(); }
   document.addEventListener('mousedown',event=>{const picker=$('canvasAgentReferencePicker'),input=$('canvasAgentInput');if(referencePickerOpen&&!picker?.contains(event.target)&&!input?.contains(event.target))closeReferencePicker(); const menu=$('canvasAgentRunMenu'),button=$('canvasAgentRunSelect');if(menu&&!menu.hidden&&!menu.contains(event.target)&&event.target!==button&&!button?.contains(event.target)){menu.hidden=true;button?.setAttribute('aria-expanded','false');}});
   $('canvasAgentRunSelect')?.addEventListener('click',()=>{const menu=$('canvasAgentRunMenu'),button=$('canvasAgentRunSelect');if(menu){menu.hidden=!menu.hidden;button.setAttribute('aria-expanded',String(!menu.hidden));}});
   window.CanvasAgentPanel={init,status,message,liveStatus,liveEvent,clearLiveStatus,isConversationEvent,system,renderRun,renderSkills,clearRun,refreshRuns,refreshCurrentRun,send,answer,confirm,confirmationFailed,resetConfirmationState,cancel}; init();
