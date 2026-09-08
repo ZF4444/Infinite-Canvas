@@ -121,6 +121,90 @@ def test_parameter_schema_is_loaded_from_persisted_model_settings(monkeypatch):
     assert quality["default"] == "high"
 
 
+def test_runninghub_app_capability_resolves_via_connection_id(monkeypatch):
+    """A runninghub.app capability addressed by connection_id only must resolve
+    the executable resource instead of failing in resolve_model."""
+    from app.ai.domain import Connection, ExecutableResource, ResolvedTarget
+    from app.services.ai_parameters import capability_parameters
+
+    target = ResolvedTarget(
+        connection=Connection(id="legacy:runninghub", protocol="runninghub", name="RunningHub", base_url="", enabled=True),
+        resource=ExecutableResource(
+            id="app-1", connection_id="legacy:runninghub", kind="runninghub_app", name="App",
+            settings={"fields": [{"nodeId": "1", "fieldName": "ratio", "fieldType": "SELECT", "fieldData": ["1:1", "16:9"]}]},
+        ),
+    )
+
+    class FakeRepository:
+        def resolve_executable(self, *, resource_id="", connection_id="", kind=""):
+            assert resource_id == ""
+            assert connection_id == "legacy:runninghub"
+            return target
+
+        def resolve_model(self, **kwargs):  # pragma: no cover - must not be called
+            raise AssertionError("runninghub app capability must not resolve a model")
+
+    monkeypatch.setattr("app.ai.database_repository.DatabaseAIRepository", FakeRepository)
+    result = capability_parameters(capability="runninghub.app.image", connection_id="legacy:runninghub")
+    assert result["params_path"] == "runSettings.rhParams"
+    assert result["fields"][0]["options"] == ["1:1", "16:9"]
+    assert result["resource_id"] == ""
+
+
+def test_api_generation_schema_exposes_prompt_role_field():
+    """AI 生成 (image/video) 的参数契约必须返回 role=prompt 的提示词字段，
+    且该字段不会被映射进 provider payload。"""
+    from app.services.ai_parameters import capability_parameters
+
+    for capability, kind in (("image.text_to_image", "image"), ("video.text_to_video", "video")):
+        schema = capability_parameters(
+            capability=capability, provider_id="p", model="m",
+            provider_loader=lambda: [{"id": "p", "enabled": True, f"{kind}_models": ["m"]}],
+        )
+        prompt = next(field for field in schema["fields"] if field["id"] == "prompt")
+        assert prompt["role"] == "prompt"
+        assert prompt["type"] == "textarea"
+        assert prompt["execution"]["supported"] is False
+
+
+def test_semantic_node_migrates_legacy_content_into_params_prompt():
+    """历史 plan 里的顶层 content 会被迁移到 params.runSettings.prompt。"""
+    from app.models.canvas_agent import SemanticNode, semantic_prompt
+
+    node = SemanticNode.model_validate({
+        "semantic_type": "image_generation",
+        "content": "雨夜城市",
+        "params": {"runSettings": {"model": "demo"}},
+    })
+    assert not hasattr(node, "content")
+    assert semantic_prompt(node.params) == "雨夜城市"
+    assert node.params["runSettings"]["model"] == "demo"
+
+
+def test_comfy_workflow_prompt_field_gets_prompt_role():
+    """工作流 PROMPT/textarea 字段会被标记 role=prompt，从而在确认面板显示到提示词栏；
+    图片/视频/音频字段标记为引用输入，其它字段保持原样。"""
+    from app.services.ai_parameters import capability_parameters
+
+    schema = capability_parameters(
+        capability="comfyui.workflow.image", model="custom/demo.json",
+        provider_loader=lambda: [{"id": "comfyui", "enabled": True}],
+        workflow_loader=lambda _name: {"config": {"fields": [
+            {"id": "pos", "type": "prompt", "default": ""},
+            {"id": "neg", "type": "textarea", "default": ""},
+            {"id": "ref", "type": "image"},
+            {"id": "seed", "type": "number", "default": 0},
+            {"id": "keep", "type": "text", "role": "custom"},
+        ]}},
+    )
+    roles = {field["id"]: field.get("role") for field in schema["fields"]}
+    assert roles["pos"] == "prompt"
+    assert roles["neg"] == "prompt"
+    assert roles["ref"] == "image"
+    assert roles["seed"] is None
+    assert roles["keep"] == "custom"
+
+
 def test_image_ratio_schema_uses_readable_values(monkeypatch):
     from app.services.ai_parameters import capability_parameters, validate_run_settings
 

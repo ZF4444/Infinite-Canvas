@@ -11,8 +11,10 @@ IMAGE_RATIO_OPTIONS = [
 def _field(*, field_id: str, name: str, field_type: str, default: Any = "", options: list[Any] | None = None,
            minimum: float | None = None, maximum: float | None = None, step: float | None = None,
            target: str = "", transform: str = "", supported: bool = True,
-           configurable: bool = True) -> dict[str, Any]:
+           configurable: bool = True, role: str = "") -> dict[str, Any]:
     result: dict[str, Any] = {"id": field_id, "name": name, "type": field_type, "default": default}
+    if role:
+        result["role"] = role
     if options is not None:
         result["options"] = options
     if minimum is not None:
@@ -32,6 +34,7 @@ DEFAULT_API_PARAMETER_SCHEMAS: dict[str, dict[str, Any]] = {
     "image": {"fields": [
         _field(field_id="provider_id", name="Provider", field_type="dropdown", default="", options=[], target="provider_id", transform="selection", configurable=False),
         _field(field_id="model", name="Model", field_type="dropdown", default="", options=[], target="model", transform="selection", configurable=False),
+        _field(field_id="prompt", name="提示词", field_type="textarea", default="", role="prompt", supported=False),
         _field(field_id="resolution", name="Resolution", field_type="dropdown", default="1k", options=["1k", "2k", "4k", "custom"], target="size", transform="image_size"),
         _field(field_id="ratio", name="Aspect ratio", field_type="dropdown", default="1:1", options=IMAGE_RATIO_OPTIONS, target="size", transform="image_size"),
         _field(field_id="customSize", name="Custom size", field_type="text", default="", target="size", transform="image_size", configurable=False),
@@ -43,6 +46,7 @@ DEFAULT_API_PARAMETER_SCHEMAS: dict[str, dict[str, Any]] = {
     "video": {"fields": [
         _field(field_id="videoProvider", name="Provider", field_type="dropdown", default="", options=[], target="provider_id", transform="selection", configurable=False),
         _field(field_id="videoModel", name="Model", field_type="dropdown", default="", options=[], target="model", transform="selection", configurable=False),
+        _field(field_id="prompt", name="提示词", field_type="textarea", default="", role="prompt", supported=False),
         _field(field_id="videoDuration", name="Duration", field_type="number", default=5, options=[5, 10, 15], minimum=1, maximum=60, step=1, target="duration", transform="integer"),
         _field(field_id="videoAspect", name="Aspect ratio", field_type="dropdown", default="16:9", options=["16:9", "4:3", "1:1", "3:4", "9:16", "21:9"], target="aspect_ratio", transform="passthrough"),
         _field(field_id="videoResolution", name="Resolution", field_type="dropdown", default="480p", options=["480p", "720p", "1080p"], target="resolution", transform="passthrough"),
@@ -183,14 +187,37 @@ def _normalize_rh_field(field: dict[str, Any]) -> dict[str, Any]:
     return {"id": f"{field.get('nodeId') or ''}::{field.get('fieldName') or ''}", "nodeId": str(field.get("nodeId") or ""), "fieldName": str(field.get("fieldName") or ""), "name": str(field.get("label") or field.get("fieldName") or "Field"), "type": field_type, "role": role, "default": default if default is not None and not isinstance(default, dict) else "", "options": options or [], "min": field.get("min"), "max": field.get("max"), "step": field.get("step")}
 
 
+def _with_comfy_role(field: dict[str, Any]) -> dict[str, Any]:
+    """Attach a normalized role to a ComfyUI workflow field.
+
+    Mirrors the canvas ``comfyFieldKind`` mapping so the Canvas Agent panel
+    routes prompt fields to the top prompt box and treats image/video/audio
+    fields as reference inputs. Prompt-typed fields (including the legacy
+    ``textarea`` type) become ``role="prompt"``; the field is copied so the
+    persisted workflow config is not mutated.
+    """
+    result = dict(field)
+    if not result.get("role"):
+        raw_type = str(result.get("type") or "").strip().lower()
+        if raw_type in {"prompt", "textarea"}:
+            result["role"] = "prompt"
+        elif raw_type in {"image", "video", "audio"}:
+            result["role"] = raw_type
+    return result
+
+
 def capability_parameters(*, capability: str, provider_id: str = "", model: str = "", connection_id: str = "", model_id: str = "", resource_id: str = "", provider_loader=None, workflow_loader=None) -> dict[str, Any]:
     """Return the field contract for a Provider model or native workflow."""
     stable_target = bool(connection_id or model_id or resource_id)
     if stable_target:
         from app.ai.database_repository import DatabaseAIRepository
         repo = DatabaseAIRepository()
-        if resource_id:
-            target = repo.resolve_executable(resource_id=resource_id)
+        # RunningHub app capabilities resolve to an executable resource, not a
+        # model. Historical canvas definitions may address them by connection_id
+        # alone, so route by capability rather than requiring resource_id.
+        executable = bool(resource_id) or capability.startswith("runninghub.")
+        if executable:
+            target = repo.resolve_executable(resource_id=resource_id, connection_id="" if resource_id else connection_id)
             provider_id, connection_id, model = target.connection.id, target.connection.id, target.resource.id
             selected = {"id": target.connection.id, "name": target.connection.name, "protocol": target.connection.protocol, "enabled": target.connection.enabled, "rh_apps": [], "comfy_workflows": []}
             if target.resource.kind == "runninghub_app":
@@ -218,7 +245,7 @@ def capability_parameters(*, capability: str, provider_id: str = "", model: str 
         if not model:
             raise ValueError("ComfyUI workflow capability requires model/workflow")
         config = (workflow_loader(model).get("config") or {})
-        return {"capability": capability, "connection_id": connection_id, "model_id": model_id, "resource_id": resource_id, "model": model, "params_path": "runSettings.comfyParams", "fields": list(config.get("fields") or []), "source": ["workflow.config.fields"]}
+        return {"capability": capability, "connection_id": connection_id, "model_id": model_id, "resource_id": resource_id, "model": model, "params_path": "runSettings.comfyParams", "fields": [_with_comfy_role(field) for field in (config.get("fields") or []) if isinstance(field, dict)], "source": ["workflow.config.fields"]}
     if provider_id == "runninghub" or capability.startswith("runninghub."):
         provider = selected or next((item for item in providers if item.get("id") == "runninghub"), None)
         app = next((item for item in (provider or {}).get("rh_apps") or [] if model in {str(item.get("app_id") or ""), str(item.get("id") or ""), str(item.get("appId") or ""), str(item.get("webappId") or "")}), None)

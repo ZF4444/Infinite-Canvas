@@ -3,9 +3,35 @@ from __future__ import annotations
 
 import json
 from typing import Annotated, Any, Literal
-from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, WithJsonSchema
+
+from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, WithJsonSchema, model_validator
 
 SCHEMA_VERSION = 1
+
+
+def semantic_prompt(params: dict[str, Any]) -> str:
+    """Read the canonical prompt text from a node's params.
+
+    The prompt is stored under ``runSettings.prompt`` for every engine so the
+    canvas node ``text`` field, the top prompt box, and the plan schema share a
+    single source of truth. RunningHub apps additionally expose the same text
+    through a prompt-role field, but the canonical copy lives here.
+    """
+    run_settings = params.get("runSettings")
+    if isinstance(run_settings, dict):
+        value = run_settings.get("prompt")
+        if isinstance(value, str):
+            return value
+    return ""
+
+
+def with_semantic_prompt(params: dict[str, Any], prompt: str) -> dict[str, Any]:
+    """Return params with ``runSettings.prompt`` set to ``prompt``."""
+    updated = dict(params or {})
+    run_settings = dict(updated.get("runSettings") or {})
+    run_settings["prompt"] = prompt
+    updated["runSettings"] = run_settings
+    return updated
 
 
 def _decode_json_object(value: Any) -> dict[str, Any]:
@@ -64,41 +90,67 @@ SemanticNodeType = Literal[
 
 class SemanticNode(ProtocolModel):
     semantic_type: SemanticNodeType = Field(
-        description="Canvas node kind. Use image_generation for image nodes, video_generation for video nodes, "
-        "workflow_generation for ComfyUI/RH workflow nodes, and prompt for prompt nodes. Never use a capability name here."
+        description="Canvas node kind. Use image_generation for image nodes, video_generation for video nodes"
     )
     title: str = Field(default="", description="Short node title.")
-    content: str = Field(default="", description="Prompt text or replacement content.")
     capability: str = Field(default="", description="Capability selected from read_capability_registry, for example image.text_to_image or prompt.generate.")
-    params: NativeJsonObject = Field(default_factory=dict)
+    params: NativeJsonObject = Field(default_factory=dict, description="Capability-specific parameters as a JSON object. The prompt text lives under runSettings.prompt; other keys depend on the chosen capability, e.g. {\"runSettings\": {\"prompt\": \"a cat\", \"ratio\": \"16:9\"}}.")
+
+    @model_validator(mode="before")
+    @classmethod
+    def _migrate_legacy_content(cls, data: Any) -> Any:
+        """Fold the retired top-level ``content`` field into params.
+
+        Historical plans stored the prompt as ``SemanticNode.content``. The
+        field has been merged into ``params.runSettings.prompt``; migrate old
+        payloads so ``extra="forbid"`` does not reject them on load.
+        """
+        if isinstance(data, str):
+            try:
+                data = json.loads(data)
+            except json.JSONDecodeError:
+                return data
+        if isinstance(data, dict) and "content" in data:
+            data = dict(data)
+            content = data.pop("content")
+            params = _decode_json_object(data.get("params")) if data.get("params") is not None else {}
+            if isinstance(content, str) and content and not semantic_prompt(params):
+                data["params"] = with_semantic_prompt(params, content)
+        return data
 
 class SemanticStep(ProtocolModel):
-    id: str
-    action: Literal["canvas.create_node", "canvas.update_node_params", "canvas.replace_node_content", "canvas.connect", "canvas.run_node", "canvas.run_group"]
-    node: SemanticNode | None = None
-    target_node_id: str = ""
-    from_step: str = ""
-    to_step: str = ""
-    relation: str = ""
-    placement: NativeJsonObject = Field(default_factory=dict)
+    id: str = Field(description="Unique step identifier within this plan, e.g. \"step_1\". Referenced by from_step/to_step in connect actions.")
+    action: Literal["canvas.create_node", "canvas.update_node_params", "canvas.replace_node_content", "canvas.connect", "canvas.run_node", "canvas.run_group"] = Field(
+        description="Canvas operation to perform. create_node adds a new node; update_node_params changes params on an existing node; "
+        "replace_node_content replaces prompt text; connect links two nodes; run_node/run_group triggers execution."
+    )
+    node: SemanticNode | None = Field(default=None, description="Node definition for create_node and update/replace actions. Omit for connect and run actions.")
+    target_node_id: str = Field(default="", description="Existing canvas node ID for update, replace, or run actions. Leave empty when creating a new node.")
+    from_step: str = Field(default="", description="Step id of the source node for a connect action.")
+    to_step: str = Field(default="", description="Step id of the target node for a connect action.")
+    relation: str = Field(default="", description="Edge label for a connect action, e.g. \"output\" or \"reference\".")
+    placement: NativeJsonObject = Field(default_factory=dict, description="Canvas layout hint as a JSON object, e.g. {\"x\": 100, \"y\": 200}. Omit to let the canvas auto-place.")
 
 class PlanExecution(ProtocolModel):
-    auto_run: bool = False
-    parallelism: int = Field(default=1, ge=1, le=16)
-    capabilities: list[str] = Field(default_factory=list)
-    estimated_cost: float = Field(default=0, ge=0)
+    auto_run: bool = Field(default=False, description="If true, execute all steps immediately after the plan is confirmed without further user interaction.")
+    parallelism: int = Field(default=1, ge=1, le=16, description="Maximum number of steps to run concurrently. Use 1 for sequential execution; higher values speed up independent steps.")
+    capabilities: list[str] = Field(default_factory=list, description="All capability identifiers required by this plan, e.g. [\"image.text_to_image\", \"prompt.generate\"]. Used for pre-flight checks.")
+    estimated_cost: float = Field(default=0, ge=0, description="Estimated total execution cost in abstract credits. Set to 0 if unknown.")
 
 class PlanConfirmation(ProtocolModel):
-    required: bool = True
-    reason: str = ""
+    required: bool = Field(default=True, description="Whether the user must explicitly approve this plan before execution. Set to false only for trivially safe, single-step actions.")
+    reason: str = Field(default="", description="Human-readable explanation of why confirmation is required, shown to the user before they approve.")
 
 class SemanticPlan(ProtocolModel):
-    mode: Literal["fast_track", "doc_chain"] = "fast_track"
-    goal: str = Field(min_length=1)
-    questions: list[str] = Field(default_factory=list)
-    steps: list[SemanticStep] = Field(default_factory=list)
-    execution: PlanExecution = Field(default_factory=PlanExecution)
-    confirmation: PlanConfirmation = Field(default_factory=PlanConfirmation)
+    mode: Literal["fast_track", "doc_chain"] = Field(
+        default="fast_track",
+        description="Execution strategy. fast_track: execute steps directly with minimal LLM calls. doc_chain: use a document-grounded reasoning chain for complex multi-step plans."
+    )
+    goal: str = Field(min_length=1, description="One-sentence description of what this plan achieves, written from the user's perspective.")
+    questions: list[str] = Field(default_factory=list, description="Clarifying questions to ask the user before executing, when the request is ambiguous. Leave empty if the goal is clear.")
+    steps: list[SemanticStep] = Field(default_factory=list, description="Ordered list of canvas operations that together achieve the goal. Steps are executed in order unless parallelism > 1.")
+    execution: PlanExecution = Field(default_factory=PlanExecution, description="Runtime execution settings for this plan.")
+    confirmation: PlanConfirmation = Field(default_factory=PlanConfirmation, description="User confirmation gate before the plan runs.")
 
 
 class IntentDecision(ProtocolModel):

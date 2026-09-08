@@ -1,7 +1,7 @@
 from __future__ import annotations
 from copy import deepcopy
 from typing import Any
-from app.models.canvas_agent import CanvasPatch, SemanticPlan
+from app.models.canvas_agent import CanvasPatch, SemanticPlan, semantic_prompt
 
 _NODE_TYPES = {
     "prompt": "smart-prompt", "smart-prompt": "smart-prompt",
@@ -56,7 +56,7 @@ def _canonical_node_data(node: Any, node_type: str) -> dict[str, Any]:
     node_data.update({
         "type": node_type,
         "title": node.title,
-        "text": node.content,
+        "text": semantic_prompt(params),
         "capability": node.capability,
     })
     return node_data
@@ -147,7 +147,7 @@ def semantic_plan_to_patch(plan: SemanticPlan, canvas_id: str, base_version: int
             operations.append({"op": "add_node", "client_ref": step.id, "placement": placement, "node": node_data})
             create_index += 1
         elif step.action in {"canvas.update_node_params", "canvas.replace_node_content", "canvas.run_node", "canvas.run_group"}:
-            operations.append({"op": step.action.removeprefix("canvas."), "node_id": step.target_node_id, "params": (step.node.params if step.node else {}), "content": (step.node.content if step.node else "")})
+            operations.append({"op": step.action.removeprefix("canvas."), "node_id": step.target_node_id, "params": (step.node.params if step.node else {}), "content": (semantic_prompt(step.node.params) if step.node else "")})
         elif step.action == "canvas.connect":
             operations.append({"op": "add_connection", "from_ref": refs.get(step.from_step, step.from_step), "to_ref": refs.get(step.to_step, step.to_step), "connection": {"kind": step.relation or "default"}})
     return CanvasPatch(canvas_id=canvas_id, base_version=base_version, operations=operations)

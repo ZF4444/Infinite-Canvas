@@ -30,9 +30,14 @@
     return target;
   }
   const schemaUrl=(capability,settings)=>{const target=resolveStableTarget(settings);const params=new URLSearchParams({capability,connection_id:target.connection_id,model_id:target.model_id,resource_id:target.resource_id});if(!target.connection_id&&!target.model_id&&!target.resource_id&&target.model)params.set('model',target.model);return `/api/canvas/capability-parameters?${params.toString()}`;};
+  // The prompt now lives in params.runSettings.prompt for every engine, mirroring
+  // the backend SemanticNode contract. Keep a single accessor so the top prompt
+  // box, RunningHub prompt-role fields, and overrides stay in sync.
+  const readPrompt=params=>{const rs=params&&typeof params==='object'?params.runSettings:null;return rs&&typeof rs.prompt==='string'?rs.prompt:'';};
+  const writePrompt=(params,value)=>{const rs=(params.runSettings&&typeof params.runSettings==='object')?params.runSettings:(params.runSettings={});rs.prompt=value;};
   function planValues(step){
     const node=step.node||{},params=clone(node.params);
-    return {step_id:step.id,title:node.title||'',content:node.content||'',params,settings:params.runSettings||params};
+    return {step_id:step.id,title:node.title||'',content:readPrompt(params),params,settings:params.runSettings||params};
   }
   function label(field){return String(field.display_name||field.name||field.id||'参数');}
   function options(field){
@@ -140,7 +145,7 @@
       // A RunningHub app exposes its prompt through a prompt-role field. Mirror
       // the canvas node: surface that text in the top prompt box (and write it
       // back there) instead of rendering a duplicate parameter control.
-      const bindPrompt=field=>{if(!promptEl)return;const store=fieldStore(field,values,paramsPath);const initial=String(store.get()??'');if(initial){promptEl.value=initial;values.content=initial;}const handler=()=>{store.set(promptEl.value);values.content=promptEl.value;};promptEl.removeEventListener('input',promptEl._agentPromptHandler||(()=>{}));promptEl._agentPromptHandler=handler;promptEl.addEventListener('input',handler);};
+      const bindPrompt=field=>{if(!promptEl)return;const store=fieldStore(field,values,paramsPath);const initial=String(store.get()??readPrompt(values.params)??'');if(initial){promptEl.value=initial;values.content=initial;store.set(initial);writePrompt(values.params,initial);}const handler=()=>{store.set(promptEl.value);writePrompt(values.params,promptEl.value);values.content=promptEl.value;};promptEl.removeEventListener('input',promptEl._agentPromptHandler||(()=>{}));promptEl._agentPromptHandler=handler;promptEl.addEventListener('input',handler);};
       const renderFields=()=>{controls.innerHTML='';
         (schema.fields||[])
           .filter(field=>!['provider_id','videoProvider'].includes(String(field.id||'')))
@@ -161,7 +166,7 @@
   function config(step,interactive,request,withActions=false,history=false,status=''){
     const values=planValues(step);const card=document.createElement('section');card.className=`canvas-agent-node-config composer-card${history?' canvas-agent-node-config-history':''}`;
     const head=document.createElement('div');head.className='canvas-agent-node-config-head composer-head';const heading=document.createElement('h5');heading.textContent=values.title||text(step);head.appendChild(heading);if(status){const badge=document.createElement('span');badge.className='canvas-agent-plan-state';badge.textContent=status;head.appendChild(badge);}card.appendChild(head);
-    const promptRow=document.createElement('div');promptRow.className='prompt-row';const content=document.createElement('textarea');content.className='canvas-agent-config-prompt prompt-input';content.value=values.content;content.disabled=!interactive&&!history;content.readOnly=history;content.placeholder='提示词';content.style.setProperty('--prompt-h','124px');if(history){content.classList.add('canvas-agent-history-prompt');content.setAttribute('aria-expanded','false');content.title='点击展开提示词';content.addEventListener('click',()=>{const expanded=content.classList.toggle('expanded');content.setAttribute('aria-expanded',String(expanded));content.title=expanded?'点击收起提示词':'点击展开提示词';});}content.addEventListener('input',()=>values.content=content.value);promptRow.appendChild(content);card.appendChild(promptRow);
+    const promptRow=document.createElement('div');promptRow.className='prompt-row';const content=document.createElement('textarea');content.className='canvas-agent-config-prompt prompt-input';content.value=values.content;content.disabled=!interactive&&!history;content.readOnly=history;content.placeholder='提示词';content.style.setProperty('--prompt-h','124px');if(history){content.classList.add('canvas-agent-history-prompt');content.setAttribute('aria-expanded','false');content.title='点击展开提示词';content.addEventListener('click',()=>{const expanded=content.classList.toggle('expanded');content.setAttribute('aria-expanded',String(expanded));content.title=expanded?'点击收起提示词':'点击展开提示词';});}content.addEventListener('input',()=>{values.content=content.value;writePrompt(values.params,content.value);});promptRow.appendChild(content);card.appendChild(promptRow);
     const controls=document.createElement('div');controls.className='canvas-agent-config-controls dynamic-params param-row';card.appendChild(controls);
     if(withActions&&interactive){const footer=document.createElement('div');footer.className='canvas-agent-confirm-actions';const authorization=document.createElement('label');authorization.className='setting-check';authorization.innerHTML='<input type="checkbox" id="canvasAgentAuthorizeNodes"><span class="check-box"></span><span>允许本轮修改引用的用户节点</span>';authorization.querySelector('input').addEventListener('change',event=>authorization.classList.toggle('active',event.target.checked));footer.appendChild(authorization);const buttons=document.createElement('div');buttons.className='canvas-agent-plan-actions';[['取消',false,'cascade-run-btn','x'],['确认',true,'run-btn','play']].forEach(([caption,approved,klass,icon])=>{const button=document.createElement('button');button.type='button';button.className=`canvas-agent-action ${klass}`;button.textContent=caption;const glyph=document.createElement('i');glyph.setAttribute('data-lucide',icon);button.prepend(glyph);button.addEventListener('click',()=>window.CanvasAgentPanel.confirm(approved));buttons.appendChild(button);});footer.appendChild(buttons);card.appendChild(footer);}
     card._override=()=>({step_id:values.step_id,title:values.title,content:values.content,params:values.params});void populateSchema(card,step,values,interactive,request,history,content);return card;

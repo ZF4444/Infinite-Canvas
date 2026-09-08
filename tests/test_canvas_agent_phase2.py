@@ -68,8 +68,9 @@ def test_hydrate_plan_nodes_prefers_generation_prompt_over_imported_file_text():
     }]}
     hydrated = _hydrate_plan_nodes(plan, canvas)
     node = hydrated["steps"][0]["node"]
-    assert node["content"] == "生成一只猫"
-    assert node["params"]["runSettings"] == {"model": "demo", "ratio": "16:9"}
+    assert node["params"]["runSettings"]["prompt"] == "生成一只猫"
+    assert node["params"]["runSettings"]["model"] == "demo"
+    assert node["params"]["runSettings"]["ratio"] == "16:9"
 
 
 def test_hydrate_plan_nodes_uses_latest_canvas_values_over_stale_plan_snapshot():
@@ -85,7 +86,7 @@ def test_hydrate_plan_nodes_uses_latest_canvas_values_over_stale_plan_snapshot()
     hydrated = _hydrate_plan_nodes(plan, canvas)
     node = hydrated["steps"][0]["node"]
     assert node["title"] == "新标题"
-    assert node["content"] == "新提示词"
+    assert node["params"]["runSettings"]["prompt"] == "新提示词"
     assert node["params"]["runSettings"]["model"] == "new-model"
 
 

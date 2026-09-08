@@ -37,7 +37,7 @@ from app.models import (
     CanvasTemplateCreateRequest,
     CanvasTemplateInstantiateRequest,
 )
-from app.models.canvas_agent import SemanticPlan
+from app.models.canvas_agent import SemanticPlan, with_semantic_prompt
 from app.services.business_metadata import load_canvas_payload
 from app.services.canvas_agent.adapter import semantic_plan_to_patch
 from app.services.canvas_agent.artifacts import (
@@ -263,9 +263,8 @@ def _hydrate_plan_nodes(plan_json: dict, canvas: dict | None) -> dict:
             "schema_version": 1,
             "semantic_type": semantic_type,
             "title": source.get("title") or source.get("name") or "",
-            "content": prompt,
             "capability": capability,
-            "params": params,
+            "params": with_semantic_prompt(params, prompt),
         }
     return plan_json
 
@@ -352,13 +351,16 @@ async def _apply_confirmation_overrides(user_id: str, run_id: str, plan_row: dic
         assert node is not None
         if "title" in override:
             node.title = str(override["title"] or "")[:200]
-        if "content" in override:
-            node.content = str(override["content"] or "")[:20000]
         params = override.get("params")
         if params is not None:
             if not isinstance(params, dict):
                 raise HTTPException(status_code=422, detail="节点参数格式无效")
             node.params = _merge_existing_params(node.params, params)
+        # The prompt now lives in params.runSettings.prompt. Accept the legacy
+        # top-level "content" override for compatibility and write it there so
+        # a user-edited prompt is preserved regardless of the merge guard.
+        if "content" in override:
+            node.params = with_semantic_prompt(node.params, str(override["content"] or "")[:20000])
     saved = await asyncio.to_thread(replace_plan_content, user_id, run_id, int(plan_row["version"]), plan.model_dump(mode="json"))
     if not saved:
         raise HTTPException(status_code=409, detail="计划版本已过期")

@@ -259,7 +259,8 @@ def test_planner_normalizes_known_legacy_canvas_operations():
 
     assert plan.steps[0].action == "canvas.create_node"
     assert plan.steps[0].node.semantic_type == "prompt"
-    assert plan.steps[0].node.content == "雨夜城市"
+    from app.models.canvas_agent import semantic_prompt
+    assert semantic_prompt(plan.steps[0].node.params) == "雨夜城市"
 
 def test_provider_adapter_preserves_invalid_tool_calls_for_planner_blocking():
     from app.services.canvas_agent.model_resolver import MediaForgeChatModel

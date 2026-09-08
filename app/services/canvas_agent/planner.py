@@ -13,6 +13,7 @@ from app.models.canvas_agent import (
     SemanticNode,
     SemanticPlan,
     SemanticStep,
+    with_semantic_prompt,
 )
 
 from . import runtime
@@ -115,9 +116,10 @@ def _normalize_plan(raw: Any, context: dict[str, Any] | None = None) -> Semantic
                 continue
             node = operation.get("node") or {}
             node_type = {"smart-prompt": "prompt", "smart-image": "image_generation", "smart-group": "group"}.get(node.get("type"), node.get("type", "prompt"))
+            params = with_semantic_prompt(node.get("params") or {}, str(node.get("text", "") or ""))
             steps.append({"id": operation.get("client_ref") or f"step-{index + 1}", "action": "canvas.create_node",
-                          "node": {"semantic_type": node_type, "title": node.get("title", ""), "content": node.get("text", ""),
-                                   "capability": node.get("capability", ""), "params": node.get("params") or {}}})
+                          "node": {"semantic_type": node_type, "title": node.get("title", ""),
+                                   "capability": node.get("capability", ""), "params": params}})
     data["steps"] = steps
     data.pop("execution", None)
     data.pop("confirmation", None)
