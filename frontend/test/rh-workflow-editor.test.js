@@ -128,6 +128,24 @@ describe('normalizeRhWorkflowField', () => {
     });
 });
 
+describe('updateRhWorkflowEditorMeta', () => {
+    it('编辑名称时通知嵌入式工作流配置页', () => {
+        const messages = [];
+        const parent = { postMessage: (message, origin) => messages.push({ message, origin }) };
+        const ctx = createRhWorkflowEditorSandbox({
+            window: { parent },
+            rhWorkflowEditorState: { config: { title: '旧名称', description: '', fields: [] } },
+        });
+
+        run(ctx, "updateRhWorkflowEditorMeta('title', '新名称')");
+
+        expect(messages).toEqual([{
+            message: { type: 'workflow-title', title: '新名称' },
+            origin: 'http://test.local',
+        }]);
+    });
+});
+
 describe('rhEditorSortedFields', () => {
     it('IMAGE 类型字段排在前面，按 imageOrder 排序', () => {
         const ctx = createRhWorkflowEditorSandbox();

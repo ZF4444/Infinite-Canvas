@@ -478,7 +478,14 @@ async function fetchRhAppEditor(force=false){
 function updateRhWorkflowEditorMeta(prop, value){
     const config = rhWorkflowEditorState.config;
     if(!config) return;
-    if(prop === 'title') config.title = value;
+    if(prop === 'title') {
+        config.title = value;
+        // Keep the embedding workflow-config page in sync so its metadata
+        // save cannot overwrite a freshly edited title with the original one.
+        if(window.parent && window.parent !== window && typeof window.parent.postMessage === 'function'){
+            window.parent.postMessage({type:'workflow-title', title:value}, location.origin);
+        }
+    }
     if(prop === 'description') config.description = value;
     withRhEditorScrollPreserved(() => renderRhMappedPreview());
 }
@@ -531,6 +538,11 @@ async function saveRhWorkflowEditor(){
     setRhWorkflowSaveButtonState('saving', '保存中...');
     config.title = rhWorkflowEditName?.value.trim() || config.title || config.appId;
     config.description = rhWorkflowEditNote?.value.trim() || config.description || '';
+    // A programmatic save can run without an input event; publish the final
+    // title before the outer page persists its workflow metadata.
+    if(window.parent && window.parent !== window && typeof window.parent.postMessage === 'function'){
+        window.parent.postMessage({type:'workflow-title', title:config.title}, location.origin);
+    }
     try {
         const item = runningHubState();
         if(item?.id === 'runninghub'){

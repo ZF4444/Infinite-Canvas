@@ -23,7 +23,9 @@ const RH_WORKFLOW_EDITOR_SRC = fs.readFileSync(
 
 export function createRhWorkflowEditorSandbox(overrides = {}) {
     const sandbox = {
-        window: {},
+        window: {...(overrides.window ?? {}), dispatchEvent: overrides.window?.dispatchEvent || (() => {})},
+        location: { origin: 'http://test.local' },
+        Event: class Event { constructor(type) { this.type = type; } },
         console, Date, Math, Array, Object, Number, String, Boolean, Set, Map, Promise, RegExp, JSON,
 
         // 这些函数内部依赖的共享状态/DOM/main.js 函数，纯函数测试用不到，
