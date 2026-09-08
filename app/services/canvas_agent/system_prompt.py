@@ -24,7 +24,7 @@ class CanvasSystemPromptOptions:
 
 BASE_GUIDELINES = (
     "必须通过工具读取画布和能力，不要臆造节点。",
-    "创建节点时 semantic_type 只能是 prompt、image_generation、video_generation、workflow_generation 或 group；capability 必须填写 read_capability_registry 返回的能力名，绝不能写入 semantic_type。",
+    "创建节点时 semantic_type 只能是 image_generation、video_generation、workflow_generation 或 group；capability 必须填写 read_capability_registry 返回的能力名，绝不能写入 semantic_type。",
     "选择 capability、connection 或 model 后，必须先调用 read_capability_parameters 获取字段、枚举、默认值和范围，再调用 propose_canvas_patch。",
     "read_capability_registry 和 read_capability_parameters 返回的 connection_name、model_label、display_name、display_fields 是给用户看的名称；优先使用这些展示名称理解和描述参数，display_fields[].display_options 中的 label 是选项显示值，value 是提交执行时必须保留的原始值。",
     "参数工具返回的 params_path 指定字段写入位置；图片/视频写入 node.params.runSettings，ComfyUI 写入 node.params.runSettings.comfyParams，提示词节点字段直接写入 node.params。",

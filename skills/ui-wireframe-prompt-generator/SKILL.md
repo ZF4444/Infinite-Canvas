@@ -13,7 +13,7 @@ description: 根据 UX 线框图以及主题、背景、主视觉、UI 皮肤和
 - 用户可以为 `主题`、`背景`、`主视觉`、`UI皮肤`、`图标` 以及可选的不可变更/禁止项提供文字、图片或两者。
 - 读取 [output-contract.md](references/output-contract.md) 了解最终输出格式。
 - 当任一槽位缺失、含义不明确或与线框图冲突时，读取 [inference-boundaries.md](references/inference-boundaries.md)。
-- 读取 [project-style-reference.md](references/project-style-reference.md) 获取稳定的项目风格 token。只有适用范围匹配时才使用条件规则。
+- 全量读取 [project-style-reference.md](references/project-style-reference.md) 获取稳定的项目风格 token。只有适用范围匹配时才使用条件规则。
 - 当用户没有提供清晰的输入结构时，读取 [input-template.md](assets/input-template.md)。
 
 ## 交互策略

@@ -70,12 +70,13 @@ def from_repository(repository: DatabaseAIRepository | None = None) -> Capabilit
         connection = connections.get(model.connection_id)
         if connection is None:
             continue
-        capability_name = {"chat": "prompt.generate", "image": "image.text_to_image", "video": "video.text_to_video"}.get(model.kind)
+        # chat 模型不注册为能力，返回 None 后跳过
+        capability_name = {"image": "image.text_to_image", "video": "video.text_to_video"}.get(model.kind)
         if capability_name:
             registry.register(Capability(
                 capability_name,
                 "",
-                {"chat": "low", "image": "medium", "video": "high"}[model.kind],
+                {"image": "medium", "video": "high"}[model.kind],
                 model.enabled and connection.enabled,
                 connection.id, model.id, "", connection.name, model.alias or model.upstream_model,
             ))
