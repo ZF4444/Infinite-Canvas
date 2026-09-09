@@ -1482,6 +1482,9 @@ function rhMediaForRun(prompt, refs){
         prompt:String(prompt || '').trim()
     };
 }
+function normalizeRhTextValue(value){
+    return String(value ?? '').replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+}
 async function rhUploadValueIfNeeded(value, sourceSettings=settings){
     const text = String(value || '').trim();
     if(!text) return '';
@@ -1510,7 +1513,7 @@ async function rhBuildNodeInfoList(media, sourceSettings=settings, randomValues=
         if(rhFieldRole(field) === 'prompt' && !String(value || '').trim()) value = rhDefaultValue(field);
         if(['image','video','audio'].includes(kind)) value = await rhUploadValueIfNeeded(value, sourceSettings);
         if(['number','slider'].includes(kind) && String(value ?? '').trim() !== '' && !Number.isNaN(Number(value))) value = Number(value);
-        if(typeof value === 'string' && /[\r\n]/.test(value)) value = value.split(/\r?\n/).map(s => s.trim()).filter(Boolean)[0] || '';
+        if(typeof value === 'string') value = normalizeRhTextValue(value);
         result.push({nodeId:field.nodeId, fieldName:field.fieldName, fieldValue:value});
     }
     return result;

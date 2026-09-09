@@ -108,6 +108,13 @@ describe('workflow media filtering', () => {
     });
 });
 
+describe('RunningHub text parameters', () => {
+    it('保留多段提示词和空行，只统一换行符', () => {
+        const { normalizeRhTextValue } = createGenerationSettingsSandbox();
+        expect(normalizeRhTextValue('第一段\r\n\r\n第二段\r第三段')).toBe('第一段\n\n第二段\n第三段');
+    });
+});
+
 describe('imageSizeForRatio', () => {
     it('兼容 natural_w/natural_h 字段', () => {
         const { imageSizeForRatio } = createGenerationSettingsSandbox();
