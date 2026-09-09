@@ -2266,6 +2266,24 @@ async def runninghub_store_remote_output(client, remote):
     saved = await run_storage_io(save_media_bytes, "output", filename, response.content, original_name=filename, content_type=response.headers.get("content-type") or "", kind=runninghub_output_kind(runninghub_output_ext(remote)), source="generated")
     return saved["url"]
 
+
+async def runninghub_store_remote_output_item(remote, *, persist=True, fallback_remote=False):
+    """Download/mirror one RH output and return its client-facing metadata."""
+    ext = runninghub_output_ext(remote)
+    kind = runninghub_output_kind(ext)
+    if not persist:
+        return remote, await run_storage_io(media_response_item, remote, "", kind)
+    try:
+        async with shared_http_client(timeout=httpx.Timeout(connect=20.0, read=240.0, write=30.0, pool=20.0)) as client:
+            url = await runninghub_store_remote_output(client, remote)
+    except Exception:
+        # A completed RH task still has a usable signed URL if mirroring fails.
+        if not fallback_remote:
+            raise
+        logger.warning("failed to persist RunningHub output; returning remote URL", exc_info=True)
+        url = remote
+    return url, await run_storage_io(media_response_item, url, "", kind)
+
 async def generate_omnilojo_image(prompt, size, model, reference_images=None, provider=None):
     from app.ai.adapters.omnilojo import OmnilojoImageAdapter
 
@@ -2977,28 +2995,12 @@ async def runninghub_query(taskId: str = "", persistOutputs: bool = True, connec
     transport = RunningHubTransport(endpoint=runninghub_endpoint_url, headers=lambda key, body: runninghub_protocol_headers(key, json_body=body), client_factory=shared_http_client, timeout=httpx.Timeout(connect=20.0, read=240.0, write=30.0, pool=20.0))
     raw = await transport.query(provider, api_key, task_id)
     code = raw.get("code") if isinstance(raw, dict) else None
-    urls = []
-    media_items = []
-    for remote in runninghub_extract_outputs(raw.get("data") if isinstance(raw, dict) else raw):
-        ext = runninghub_output_ext(remote)
-        kind = runninghub_output_kind(ext)
-        if not persistOutputs:
-            urls.append(remote)
-            media_items.append(await run_storage_io(media_response_item, remote, "", kind))
-            continue
-        try:
-            async with shared_http_client(timeout=httpx.Timeout(connect=20.0, read=240.0, write=30.0, pool=20.0)) as client:
-                local_url = await runninghub_store_remote_output(client, remote)
-        except Exception as exc:
-            # A completed RunningHub task already has a usable signed output
-            # URL. Do not hide it from the user when the optional local mirror
-            # fails because the upstream CDN breaks the response stream.
-            logger.warning("failed to persist RunningHub output; returning remote URL", exc_info=True)
-            urls.append(remote)
-            media_items.append(await run_storage_io(media_response_item, remote, "", kind))
-            continue
-        urls.append(local_url)
-        media_items.append(await run_storage_io(media_response_item, local_url, "", kind))
+    stored_outputs = await asyncio.gather(*(
+        runninghub_store_remote_output_item(remote, persist=persistOutputs, fallback_remote=True)
+        for remote in runninghub_extract_outputs(raw.get("data") if isinstance(raw, dict) else raw)
+    ))
+    urls = [item[0] for item in stored_outputs]
+    media_items = [item[1] for item in stored_outputs]
     status = runninghub_normalized_status(raw, code, urls)
     await asyncio.to_thread(
         settle_runninghub_usage, user_id, task_id, raw,
@@ -4373,15 +4375,12 @@ async def run_canvas_runninghub_task(task_id: str, payload: RunningHubSubmitRequ
                 return
             raw = await transport.query(provider, api_key, str(upstream_task_id))
             code = raw.get("code") if isinstance(raw, dict) else None
-            urls = []
-            media_items = []
-            for remote in runninghub_extract_outputs(raw.get("data") if isinstance(raw, dict) else raw):
-                ext = runninghub_output_ext(remote)
-                kind = runninghub_output_kind(ext)
-                async with shared_http_client(timeout=httpx.Timeout(connect=20.0, read=240.0, write=30.0, pool=20.0)) as client:
-                    local_url = await runninghub_store_remote_output(client, remote)
-                urls.append(local_url)
-                media_items.append(await run_storage_io(media_response_item, local_url, "", kind))
+            stored_outputs = await asyncio.gather(*(
+                runninghub_store_remote_output_item(remote)
+                for remote in runninghub_extract_outputs(raw.get("data") if isinstance(raw, dict) else raw)
+            ))
+            urls = [item[0] for item in stored_outputs]
+            media_items = [item[1] for item in stored_outputs]
             status = runninghub_normalized_status(raw, code, urls)
             if status in {"SUCCESS", "FAILED"}:
                 break
