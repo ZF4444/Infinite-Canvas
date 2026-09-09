@@ -78,6 +78,18 @@ def output_kind(ext: str) -> str:
 
 def normalized_status(raw: Any, code: Any, urls: list[str]) -> str:
     data = raw.get("data") if isinstance(raw, dict) else {}
+    # RunningHub sometimes includes a generic/terminal-looking status beside
+    # the queue response. The queue codes/messages are authoritative: the
+    # task was accepted and must continue polling rather than surface an
+    # error to the canvas user.
+    messages = " ".join(
+        str(item.get(key) or "")
+        for item in (raw, data)
+        if isinstance(item, dict)
+        for key in ("code", "msg", "message", "errorMessage", "failReason")
+    ).upper()
+    if code in (803, "803", 804, "804") or "APIKEY_TASK_IS_QUEUED" in messages or "APIKEY_TASK_IS_RUNNING" in messages:
+        return "RUNNING"
     status = next((str(item.get("status") or "").upper() for item in (raw, data) if isinstance(item, dict) and item.get("status")), "")
     if status in {"SUCCESS", "SUCCEEDED", "COMPLETED"}:
         return "SUCCESS"

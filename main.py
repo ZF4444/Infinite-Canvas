@@ -2921,7 +2921,7 @@ async def runninghub_submit(payload: RunningHubSubmitRequest):
             status_code=409,
             detail="RunningHub 正在执行当前 API Key 的其他任务，请等待其完成后再提交。",
         )
-    if isinstance(raw, dict) and raw.get("code") in (0, "0"):
+    if isinstance(raw, dict) and raw.get("code") in (0, "0", 803, "803"):
         upstream_task_id = raw.get("data", {}).get("taskId") if isinstance(raw.get("data"), dict) else ""
         if not upstream_task_id:
             raise HTTPException(status_code=502, detail=f"RunningHub 未返回 taskId：{raw}")
@@ -4347,7 +4347,7 @@ async def run_canvas_runninghub_task(task_id: str, payload: RunningHubSubmitRequ
                 raw = await transport.submit(provider, api_key, body)
             if isinstance(raw, dict) and raw.get("code") in (804, "804"):
                 raise CanvasRunningHubKeyBusy("RunningHub 正在执行当前 API Key 的其他任务，请稍后重试。")
-            if not (isinstance(raw, dict) and raw.get("code") in (0, "0")):
+            if not (isinstance(raw, dict) and raw.get("code") in (0, "0", 803, "803")):
                 raise RuntimeError((raw.get("msg") if isinstance(raw, dict) else "") or f"RunningHub 提交失败：{raw}")
             upstream_task_id = raw.get("data", {}).get("taskId") if isinstance(raw.get("data"), dict) else ""
             if not upstream_task_id:

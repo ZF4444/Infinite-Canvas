@@ -10,6 +10,10 @@ def test_runninghub_outputs_task_queued_code_stays_pending():
     assert runninghub_normalized_status({"code": 803, "msg": "APIKEY_TASK_IS_QUEUED"}, 803, []) == "RUNNING"
 
 
+def test_runninghub_queued_message_overrides_misleading_terminal_status():
+    assert runninghub_normalized_status({"code": 803, "status": "FAILED", "msg": "APIKEY_TASK_IS_QUEUED"}, 803, []) == "RUNNING"
+
+
 def test_runninghub_outputs_unknown_error_still_fails():
     assert runninghub_normalized_status({"code": 500, "msg": "failed"}, 500, []) == "FAILED"
 

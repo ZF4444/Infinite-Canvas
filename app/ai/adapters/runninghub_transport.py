@@ -26,12 +26,12 @@ class RunningHubTransport:
     async def submit(self, connection: Mapping[str, Any], api_key: str, body: Mapping[str, Any]) -> Mapping[str, Any]:
         async with self._client_factory(timeout=self._timeout) as client:
             response = await client.post(self._endpoint(connection, "/task/openapi/ai-app/run"), headers=dict(self._headers(api_key, True)), json=dict(body))
-            return self._json(response, "提交 RunningHub 任务失败")
+            return self._json(response, "提交 RunningHub 任务失败", allow_codes={803})
 
     async def query(self, connection: Mapping[str, Any], api_key: str, task_id: str) -> Mapping[str, Any]:
         async with self._client_factory(timeout=self._timeout) as client:
             response = await client.post(self._endpoint(connection, "/task/openapi/outputs"), headers=dict(self._headers(api_key, True)), json={"apiKey": api_key, "taskId": task_id})
-            return self._json(response, "查询 RunningHub 任务失败")
+            return self._json(response, "查询 RunningHub 任务失败", allow_codes={803, 804})
 
     async def upload(self, connection: Mapping[str, Any], api_key: str, filename: str, content: bytes, content_type: str) -> Mapping[str, Any]:
         async with self._client_factory(timeout=self._timeout) as client:
@@ -52,11 +52,12 @@ class RunningHubTransport:
         raise HTTPException(status_code=504, detail=f"RunningHub 任务超时：{task_id}")
 
     @staticmethod
-    def _json(response: Any, message: str) -> Mapping[str, Any]:
+    def _json(response: Any, message: str, *, allow_codes: set[int] | None = None) -> Mapping[str, Any]:
         try:
             raw = response.json()
         except Exception as exc:
             raise HTTPException(status_code=502, detail=message) from exc
-        if response.status_code >= 400:
+        code = raw.get("code") if isinstance(raw, Mapping) else None
+        if response.status_code >= 400 and code not in (allow_codes or set()):
             raise HTTPException(status_code=response.status_code, detail=str(raw)[:800])
         return raw
