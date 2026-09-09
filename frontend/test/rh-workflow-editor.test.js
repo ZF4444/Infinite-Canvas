@@ -146,6 +146,36 @@ describe('updateRhWorkflowEditorMeta', () => {
     });
 });
 
+describe('RH 参数 JSON 导入导出', () => {
+    it('导出只包含参数字段和应用标识', () => {
+        const ctx = createRhWorkflowEditorSandbox();
+        const result = JSON.parse(run(ctx, `JSON.stringify(rhWorkflowParameterExportPayload({appId:'app-1', title:'测试', description:'不要导出', fields:[{nodeId:'n1', fieldName:'prompt', fieldValue:'cat'}]}))`));
+        expect(result.format).toBe('mediaforge-rh-parameters');
+        expect(result.appId).toBe('app-1');
+        expect(result.fields[0].fieldName).toBe('prompt');
+        expect(result.description).toBeUndefined();
+    });
+
+    it('兼容导出对象和直接 fields 数组', () => {
+        const ctx = createRhWorkflowEditorSandbox();
+        expect(run(ctx, "parseRhWorkflowParameterImport('{\"fields\":[{\"fieldName\":\"seed\"}]}').fields.length")).toBe(1);
+        expect(run(ctx, "parseRhWorkflowParameterImport('[{\"fieldName\":\"prompt\"}]').fields.length")).toBe(1);
+    });
+
+    it('导入标准导出文件时恢复名称', () => {
+        const ctx = createRhWorkflowEditorSandbox();
+        const result = JSON.parse(run(ctx, "JSON.stringify(parseRhWorkflowParameterImport('{\"title\":\"导入名称\",\"fields\":[{\"fieldName\":\"prompt\"}]}'))"));
+        expect(result.title).toBe('导入名称');
+        expect(result.fields).toHaveLength(1);
+    });
+
+    it('拒绝缺少 fields 或 fieldName 的 JSON', () => {
+        const ctx = createRhWorkflowEditorSandbox();
+        expect(() => run(ctx, "parseRhWorkflowParameterImport('{}')")).toThrow('fields');
+        expect(() => run(ctx, "parseRhWorkflowParameterImport('{\"fields\":[{}]}')")).toThrow('fieldName');
+    });
+});
+
 describe('rhEditorSortedFields', () => {
     it('IMAGE 类型字段排在前面，按 imageOrder 排序', () => {
         const ctx = createRhWorkflowEditorSandbox();

@@ -531,6 +531,70 @@ function setRhWorkflowSaveButtonState(state, text){
     if(icon) icon.setAttribute('data-lucide', state === 'saved' ? 'check' : 'save');
     refreshIcons();
 }
+function rhWorkflowParameterExportPayload(config){
+    const source = config || {};
+    return {
+        format:'mediaforge-rh-parameters',
+        version:1,
+        appId:String(source.appId || ''),
+        title:String(source.title || ''),
+        fields:(Array.isArray(source.fields) ? source.fields : []).map(normalizeRhWorkflowField)
+    };
+}
+function parseRhWorkflowParameterImport(value){
+    const parsed = typeof value === 'string' ? JSON.parse(value) : value;
+    const fields = Array.isArray(parsed) ? parsed : parsed?.fields;
+    if(!Array.isArray(fields)) throw new Error('JSON 必须包含 fields 数组');
+    if(fields.some(field => !field || typeof field !== 'object' || !String(field.fieldName || '').trim())){
+        throw new Error('参数字段必须包含 fieldName');
+    }
+    return {
+        fields:fields.map(normalizeRhWorkflowField),
+        title:Array.isArray(parsed) ? '' : String(parsed?.title || '').trim()
+    };
+}
+function exportRhWorkflowJson(){
+    const config = rhWorkflowEditorState.config;
+    if(!config){ alert('请先加载应用参数'); return false; }
+    const payload = JSON.stringify(rhWorkflowParameterExportPayload(config), null, 2);
+    const blob = new Blob([payload], {type:'application/json;charset=utf-8'});
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `${String(config.title || config.appId || 'rh-parameters').replace(/[\\/:*?"<>|]+/g, '_')}-parameters.json`;
+    link.click();
+    setTimeout(() => URL.revokeObjectURL(url), 0);
+    setStatus('参数 JSON 已导出');
+    return true;
+}
+function importRhWorkflowJson(file){
+    if(!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+        try {
+            const config = rhWorkflowEditorState.config;
+            if(!config) throw new Error('请先加载应用参数');
+            const imported = parseRhWorkflowParameterImport(String(reader.result || ''));
+            config.fields = imported.fields;
+            if(imported.title){
+                config.title = imported.title;
+                if(rhWorkflowEditName) rhWorkflowEditName.value = imported.title;
+                updateRhWorkflowEditorMeta('title', imported.title);
+            }
+            rhWorkflowEditorState.previewParams = {};
+            renderRhWorkflowEditor();
+            setStatus('参数 JSON 已导入，点击保存生效');
+        } catch(error) {
+            setStatus(`导入失败：${error.message || 'JSON 格式无效'}`);
+            alert(error.message || '参数 JSON 导入失败');
+        }
+    };
+    reader.onerror = () => {
+        setStatus('导入失败：无法读取文件');
+        alert('参数 JSON 导入失败：无法读取文件');
+    };
+    reader.readAsText(file);
+}
 async function saveRhWorkflowEditor(){
     const state = rhWorkflowEditorState;
     const config = state.config;
