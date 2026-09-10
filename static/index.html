@@ -971,6 +971,8 @@
         .sidebar { position:relative; isolation:isolate; width:68px; min-width:68px; padding:16px 8px 12px; background:color-mix(in srgb,var(--sidebar-bg) 84%,transparent); border-right:1px solid color-mix(in srgb,var(--border) 78%,transparent); box-shadow:14px 0 36px rgba(15,23,42,.08); backdrop-filter:blur(26px) saturate(145%); -webkit-backdrop-filter:blur(26px) saturate(145%); transition:width .42s cubic-bezier(.22,1,.36,1),min-width .42s cubic-bezier(.22,1,.36,1),background .24s ease,box-shadow .24s ease; }
         .sidebar:hover,.sidebar.is-pinned { width:224px; }
         .sidebar:not(.is-pinned):hover,.sidebar.is-collapsing:hover { width:68px; }
+        .sidebar.is-hover-suppressed,
+        .sidebar.is-hover-suppressed:hover { width:68px; min-width:68px; }
         .sidebar.is-pinned { min-width:224px; box-shadow:18px 0 42px rgba(15,23,42,.12); }
         .sidebar .nav-item,.sidebar .nav-fold-toggle { height:42px; margin:3px 0; border-radius:12px; padding-left:13px; transition:width .42s cubic-bezier(.22,1,.36,1),background .16s ease,color .16s ease,transform .16s ease; }
         .sidebar:not(.is-pinned) .nav-item,.sidebar:not(.is-pinned) .nav-fold-toggle { width:48px; }
@@ -1033,7 +1035,7 @@
 
     <div class="app-shell">
         <aside class="sidebar" id="studioSidebar">
-            <button class="logo-ring mb-12" id="sidebarLogoToggle" type="button" onclick="toggleSidebarPinned(event)" aria-pressed="false" aria-label="展开导航栏" title="展开导航栏">
+            <button class="logo-ring mb-12" id="sidebarLogoToggle" type="button" aria-pressed="false" aria-label="展开导航栏" title="展开导航栏">
                 <svg id="sidebar-open-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 3v18"></path><path d="m14 9 3 3-3 3"></path></svg>
                 <svg id="sidebar-collapse-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M15 3v18"></path><path d="m10 9-3 3 3 3"></path></svg>
                 <span class="sidebar-toggle-label">收起导航栏</span>
