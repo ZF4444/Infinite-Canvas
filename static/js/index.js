@@ -147,17 +147,6 @@
             document.addEventListener('touchstart', collapseOutside, { passive:true });
         }
 
-        function bindSidebarToggle() {
-            const sidebar = document.getElementById('studioSidebar');
-            const logo = document.getElementById('sidebarLogoToggle');
-            if(!sidebar || !logo || logo.dataset.toggleBound === '1') return;
-            logo.dataset.toggleBound = '1';
-            logo.addEventListener('click', toggleSidebarPinned);
-            sidebar.addEventListener('pointerleave', () => {
-                sidebar.classList.remove('is-hover-suppressed');
-            });
-        }
-
         function setLocalNavCollapsed(collapsed, options = {}) {
             const group = document.getElementById('local-nav-group');
             const toggle = document.getElementById('local-nav-toggle');
@@ -319,7 +308,11 @@
         }
         document.addEventListener('DOMContentLoaded', restoreActivePage, { once:true });
         document.addEventListener('DOMContentLoaded', bindSidebarTouchExpand, { once:true });
-        document.addEventListener('DOMContentLoaded', bindSidebarToggle, { once:true });
+        document.addEventListener('DOMContentLoaded', () => {
+            document.getElementById('studioSidebar')?.addEventListener('pointerleave', () => {
+                document.getElementById('studioSidebar')?.classList.remove('is-hover-suppressed');
+            });
+        }, { once:true });
         document.addEventListener('DOMContentLoaded', () => {
             document.querySelectorAll('.nav-item').forEach(item => {
                 item.setAttribute('role', 'button');

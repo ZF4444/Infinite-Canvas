@@ -997,10 +997,10 @@
         .sidebar.is-collapsing.is-touch-expanded .logo-ring { transform:none; border-radius:12px; }
         .sidebar:not(.is-pinned):not(.is-touch-expanded):hover .logo-ring,
         .sidebar.is-collapsing:not(.is-touch-expanded):hover .logo-ring { transform:none; border-radius:12px; }
-        .sidebar.is-pinned .logo-ring { width:184px; min-width:184px; max-width:184px; flex-basis:184px; aspect-ratio:auto; justify-content:flex-start; padding:0 12px; }
+        .sidebar.is-pinned .logo-ring { width:184px; min-width:184px; max-width:184px; aspect-ratio:auto; justify-content:flex-start; padding:0 12px; }
         .sidebar.is-pinned .sidebar-toggle-label { max-width:140px; margin-left:10px; opacity:1; }
         .sidebar.is-touch-expanded .logo-ring,
-        .sidebar.is-collapsing.is-touch-expanded .logo-ring { width:170px; min-width:170px; max-width:170px; flex-basis:170px; aspect-ratio:auto; justify-content:flex-start; padding:0 12px; }
+        .sidebar.is-collapsing.is-touch-expanded .logo-ring { width:170px; min-width:170px; max-width:170px; aspect-ratio:auto; justify-content:flex-start; padding:0 12px; }
         .sidebar.is-touch-expanded .sidebar-toggle-label,
         .sidebar.is-collapsing.is-touch-expanded .sidebar-toggle-label { max-width:130px; margin-left:10px; opacity:1; }
         .side-actions { gap:5px; margin-top:12px; padding-top:12px; border-top:1px solid color-mix(in srgb,var(--border) 78%,transparent); }
@@ -1028,6 +1028,11 @@
         .sidebar.is-collapsing.is-touch-expanded .side-pill { width:160px; gap:8px; transition-delay:0s; }
         .sidebar.is-touch-expanded .side-pill-text,
         .sidebar.is-collapsing.is-touch-expanded .side-pill-text { opacity:1; max-width:120px; margin-left:10px; transition-delay:.15s; }
+        .sidebar-toggle-hitbox { width:40px; height:40px; flex:0 0 40px; margin:0 auto 18px; cursor:pointer; }
+        .sidebar-toggle-hitbox .logo-ring { margin:0 !important; }
+        .sidebar.is-pinned .sidebar-toggle-hitbox { width:184px; }
+        .sidebar.is-touch-expanded .sidebar-toggle-hitbox,
+        .sidebar.is-collapsing.is-touch-expanded .sidebar-toggle-hitbox { width:170px; }
     </style>
 </head>
 
@@ -1035,11 +1040,13 @@
 
     <div class="app-shell">
         <aside class="sidebar" id="studioSidebar">
-            <button class="logo-ring mb-12" id="sidebarLogoToggle" type="button" aria-pressed="false" aria-label="展开导航栏" title="展开导航栏">
-                <svg id="sidebar-open-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 3v18"></path><path d="m14 9 3 3-3 3"></path></svg>
-                <svg id="sidebar-collapse-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M15 3v18"></path><path d="m10 9-3 3 3 3"></path></svg>
-                <span class="sidebar-toggle-label">收起导航栏</span>
-            </button>
+            <div class="sidebar-toggle-hitbox" onclick="toggleSidebarPinned(event)">
+                <button class="logo-ring" id="sidebarLogoToggle" type="button" aria-pressed="false" aria-label="展开导航栏" title="展开导航栏">
+                    <svg id="sidebar-open-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 3v18"></path><path d="m14 9 3 3-3 3"></path></svg>
+                    <svg id="sidebar-collapse-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M15 3v18"></path><path d="m10 9-3 3 3 3"></path></svg>
+                    <span class="sidebar-toggle-label">收起导航栏</span>
+                </button>
+            </div>
 
             <nav>
                 <div class="nav-item active" onclick="switchUI(this, 'canvas')">
