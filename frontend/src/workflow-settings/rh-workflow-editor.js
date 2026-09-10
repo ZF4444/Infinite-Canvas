@@ -538,6 +538,7 @@ function rhWorkflowParameterExportPayload(config){
         version:1,
         appId:String(source.appId || ''),
         title:String(source.title || ''),
+        description:String(source.description ?? source.note ?? ''),
         fields:(Array.isArray(source.fields) ? source.fields : []).map(normalizeRhWorkflowField)
     };
 }
@@ -550,7 +551,8 @@ function parseRhWorkflowParameterImport(value){
     }
     return {
         fields:fields.map(normalizeRhWorkflowField),
-        title:Array.isArray(parsed) ? '' : String(parsed?.title || '').trim()
+        title:Array.isArray(parsed) ? '' : String(parsed?.title || '').trim(),
+        description:Array.isArray(parsed) ? '' : String(parsed?.description ?? parsed?.note ?? '').trim()
     };
 }
 function exportRhWorkflowJson(){
@@ -576,6 +578,8 @@ function importRhWorkflowJson(file){
             if(!config) throw new Error('请先加载应用参数');
             const imported = parseRhWorkflowParameterImport(String(reader.result || ''));
             config.fields = imported.fields;
+            config.description = imported.description;
+            if(rhWorkflowEditNote) rhWorkflowEditNote.value = imported.description;
             if(imported.title){
                 config.title = imported.title;
                 if(rhWorkflowEditName) rhWorkflowEditName.value = imported.title;

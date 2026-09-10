@@ -147,13 +147,14 @@ describe('updateRhWorkflowEditorMeta', () => {
 });
 
 describe('RH 参数 JSON 导入导出', () => {
-    it('导出只包含参数字段和应用标识', () => {
+    it('导出完整的应用配置', () => {
         const ctx = createRhWorkflowEditorSandbox();
-        const result = JSON.parse(run(ctx, `JSON.stringify(rhWorkflowParameterExportPayload({appId:'app-1', title:'测试', description:'不要导出', fields:[{nodeId:'n1', fieldName:'prompt', fieldValue:'cat'}]}))`));
+        const result = JSON.parse(run(ctx, `JSON.stringify(rhWorkflowParameterExportPayload({appId:'app-1', title:'测试', description:'应用备注', fields:[{nodeId:'n1', fieldName:'prompt', fieldValue:'cat'}]}))`));
         expect(result.format).toBe('mediaforge-rh-parameters');
         expect(result.appId).toBe('app-1');
+        expect(result.title).toBe('测试');
+        expect(result.description).toBe('应用备注');
         expect(result.fields[0].fieldName).toBe('prompt');
-        expect(result.description).toBeUndefined();
     });
 
     it('兼容导出对象和直接 fields 数组', () => {
@@ -162,10 +163,11 @@ describe('RH 参数 JSON 导入导出', () => {
         expect(run(ctx, "parseRhWorkflowParameterImport('[{\"fieldName\":\"prompt\"}]').fields.length")).toBe(1);
     });
 
-    it('导入标准导出文件时恢复名称', () => {
+    it('导入标准导出文件时恢复名称和备注', () => {
         const ctx = createRhWorkflowEditorSandbox();
-        const result = JSON.parse(run(ctx, "JSON.stringify(parseRhWorkflowParameterImport('{\"title\":\"导入名称\",\"fields\":[{\"fieldName\":\"prompt\"}]}'))"));
+        const result = JSON.parse(run(ctx, "JSON.stringify(parseRhWorkflowParameterImport('{\"title\":\"导入名称\",\"description\":\"导入备注\",\"fields\":[{\"fieldName\":\"prompt\"}]}'))"));
         expect(result.title).toBe('导入名称');
+        expect(result.description).toBe('导入备注');
         expect(result.fields).toHaveLength(1);
     });
 
