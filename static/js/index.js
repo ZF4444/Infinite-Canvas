@@ -97,9 +97,13 @@
             if(!pinned) {
                 sidebar.classList.remove('is-touch-expanded');
                 sidebar.classList.add('is-collapsing');
+                // Keep the collapsed state stable until the pointer leaves the
+                // sidebar. Otherwise :hover can immediately re-expand it.
+                sidebar.classList.add('is-hover-suppressed');
                 window.setTimeout(() => sidebar.classList.remove('is-collapsing'), 360);
             } else {
                 sidebar.classList.remove('is-collapsing');
+                sidebar.classList.remove('is-hover-suppressed');
             }
             if(logo) {
                 logo.setAttribute('aria-pressed', pinned ? 'true' : 'false');
@@ -141,6 +145,17 @@
             sidebar.addEventListener('touchstart', expand, { passive:true });
             document.addEventListener('pointerdown', collapseOutside, { passive:true });
             document.addEventListener('touchstart', collapseOutside, { passive:true });
+        }
+
+        function bindSidebarToggle() {
+            const sidebar = document.getElementById('studioSidebar');
+            const logo = document.getElementById('sidebarLogoToggle');
+            if(!sidebar || !logo || logo.dataset.toggleBound === '1') return;
+            logo.dataset.toggleBound = '1';
+            logo.addEventListener('click', toggleSidebarPinned);
+            sidebar.addEventListener('pointerleave', () => {
+                sidebar.classList.remove('is-hover-suppressed');
+            });
         }
 
         function setLocalNavCollapsed(collapsed, options = {}) {
@@ -304,6 +319,7 @@
         }
         document.addEventListener('DOMContentLoaded', restoreActivePage, { once:true });
         document.addEventListener('DOMContentLoaded', bindSidebarTouchExpand, { once:true });
+        document.addEventListener('DOMContentLoaded', bindSidebarToggle, { once:true });
         document.addEventListener('DOMContentLoaded', () => {
             document.querySelectorAll('.nav-item').forEach(item => {
                 item.setAttribute('role', 'button');
