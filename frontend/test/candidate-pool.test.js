@@ -199,3 +199,40 @@ describe('syncCandidateImageDimensions', () => {
         expect(displayed).toMatchObject({ natural_w: 768, natural_h: 1365 });
     });
 });
+
+describe('removeCandidateFromNode', () => {
+    it('删除当前主素材后切换到相邻候选，并同步候选池', () => {
+        const { removeCandidateFromNode } = createCandidatePoolSandbox();
+        const node = {
+            type: 'smart-image',
+            candidateImages: [
+                { url: 'https://x.com/a.png' },
+                { url: 'https://x.com/b.png' },
+                { url: 'https://x.com/c.png' },
+            ],
+            images: [{ url: 'https://x.com/b.png', generatedResult: true }],
+            candidateIndex: 1,
+        };
+
+        expect(removeCandidateFromNode(node, 1).url).toBe('https://x.com/b.png');
+        expect(node.candidateImages.map(item => item.url)).toEqual(['https://x.com/a.png', 'https://x.com/c.png']);
+        expect(node.candidateIndex).toBe(1);
+        expect(node.images[0].url).toBe('https://x.com/c.png');
+    });
+
+    it('删除最后候选时清掉主图但保留遮罩输入', () => {
+        const { removeCandidateFromNode } = createCandidatePoolSandbox();
+        const mask = { url: 'https://x.com/a_mask.png', role: 'mask' };
+        const node = {
+            type: 'smart-image',
+            candidateImages: [{ url: 'https://x.com/a.png' }],
+            images: [{ url: 'https://x.com/a.png', generatedResult: true }, mask],
+            candidateIndex: 0,
+        };
+
+        removeCandidateFromNode(node, 0);
+        expect(node.candidateImages).toEqual([]);
+        expect(node.images).toEqual([mask]);
+        expect(node.candidateIndex).toBe(0);
+    });
+});

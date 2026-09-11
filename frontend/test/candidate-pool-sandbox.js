@@ -44,6 +44,7 @@ export function createCandidatePoolSandbox(overrides = {}) {
         isHistoryGroupNode: overrides.fns?.isHistoryGroupNode || (() => false),
         settingsForStorage: overrides.fns?.settingsForStorage || ((s) => ({ ...s })),
         cloneSmartSettings: overrides.fns?.cloneSmartSettings || ((s) => ({ ...s })),
+        mediaNodeDefaultScale: overrides.fns?.mediaNodeDefaultScale || (() => 1),
         promptDraftHtmlFromRunMeta: overrides.fns?.promptDraftHtmlFromRunMeta || (() => ''),
     };
 

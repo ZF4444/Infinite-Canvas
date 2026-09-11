@@ -6,7 +6,7 @@ const uploadInput = document.getElementById('assetUploadInput');
 const ASSET_MANAGER_TABS = new Set(['assets', 'prompts', 'canvas-assets', 'local', 'storage']);
 let requestedInitialTab = '';
 try {
-    requestedInitialTab = new URLSearchParams(location.search).get('tab') || localStorage.getItem('asset_manager_requested_tab') || '';
+    requestedInitialTab = new URLSearchParams(location.search).get('tab') || (location.pathname.endsWith('/storage-manager.html') ? 'storage' : '') || localStorage.getItem('asset_manager_requested_tab') || '';
     localStorage.removeItem('asset_manager_requested_tab');
 } catch (_) {}
 let activeTab = ASSET_MANAGER_TABS.has(requestedInitialTab) ? requestedInitialTab : 'assets';

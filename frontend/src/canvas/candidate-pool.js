@@ -172,7 +172,7 @@ function candidateCountForNode(node){
     return nodeCandidateImages(node).length;
 }
 function isCandidatePanelInteractionTarget(target){
-    return Boolean(target?.closest?.('[data-candidate-toggle],[data-candidate-expand],[data-candidate-prev],[data-candidate-next],[data-candidate-set-main],[data-candidate-grid-item],.candidate-panel,.candidate-toggle,.candidate-grid'));
+    return Boolean(target?.closest?.('[data-candidate-toggle],[data-candidate-expand],[data-candidate-prev],[data-candidate-next],[data-candidate-set-main],[data-candidate-remove],[data-candidate-grid-item],.candidate-panel,.candidate-toggle,.candidate-grid'));
 }
 function isExpandedCandidateGridInteractionTarget(target){
     const grid = target?.closest?.('[data-candidate-grid]');
@@ -209,6 +209,32 @@ function setNodeMainCandidate(node, index=0){
     delete node.w;
     delete node.h;
     return true;
+}
+function removeCandidateFromNode(node, index){
+    if(!node) return null;
+    const pool = nodeCandidateImages(node);
+    const removeIndex = Number(index);
+    if(!Number.isInteger(removeIndex) || removeIndex < 0 || removeIndex >= pool.length) return null;
+    const removed = pool[removeIndex];
+    const currentIndex = Math.max(0, Math.min(pool.length - 1, Number(node.candidateIndex) || 0));
+    const nextPool = pool.filter((_, i) => i !== removeIndex);
+    node.candidateImages = nextPool;
+    if(!nextPool.length){
+        // 遮罩是配套输入，不属于候选池，删除最后一个候选时仍需保留它。
+        node.images = (node.images || []).filter(img => img?.url && isMaskImageItem(img));
+        node.candidateIndex = 0;
+        return removed;
+    }
+    const nextIndex = currentIndex === removeIndex
+        ? Math.min(removeIndex, nextPool.length - 1)
+        : currentIndex > removeIndex ? currentIndex - 1 : currentIndex;
+    if(currentIndex === removeIndex){
+        // Remove the displayed copy first so nodeCandidateImages cannot merge
+        // the deleted main candidate back into the pool.
+        node.images = (node.images || []).filter(img => img?.url && isMaskImageItem(img));
+    }
+    setNodeMainCandidate(node, nextIndex);
+    return removed;
 }
 function syncCandidateImageDimensions(node, image, w, h){
     if(!node || !image?.url || !(w > 0 && h > 0)) return false;
@@ -297,5 +323,5 @@ function expandedCandidateGridHtml(node){
     const pool = nodeCandidateImages(node);
     if(pool.length <= 1) return '';
     const current = Math.max(0, Math.min(pool.length - 1, Number(node.candidateIndex) || 0));
-    return `<div class="candidate-grid" data-candidate-grid="${escapeAttr(node.id)}">${pool.map((img, i) => `<div class="candidate-grid-item ${i === current ? 'is-main' : ''}" data-candidate-grid-item="${i}">${thumbMediaHtml(img)}<span class="candidate-grid-idx">${i + 1}</span></div>`).join('')}</div>`;
+    return `<div class="candidate-grid" data-candidate-grid="${escapeAttr(node.id)}">${pool.map((img, i) => `<div class="candidate-grid-item ${i === current ? 'is-main' : ''}" data-candidate-grid-item="${i}">${thumbMediaHtml(img)}<button class="candidate-grid-remove" type="button" data-candidate-remove="${escapeAttr(node.id)}" data-candidate-remove-index="${i}" title="从候选池移除" aria-label="从候选池移除"><i data-lucide="trash-2"></i></button><span class="candidate-grid-idx">${i + 1}</span></div>`).join('')}</div>`;
 }

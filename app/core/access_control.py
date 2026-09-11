@@ -51,6 +51,7 @@ _FALLBACK_ALL_PAGES: List[Dict[str, str]] = [
     {"id": "canvas", "label": "无限画布"},
     {"id": "canvas-agent", "label": "画布 Agent"},
     {"id": "asset-manager", "label": "素材库"},
+    {"id": "storage-manager", "label": "空间管理"},
     {"id": "my-account", "label": "我的账户"},
     {"id": "api-settings", "label": "API 设置"},
     {"id": "comfyui-settings", "label": "工作流设置"},
@@ -197,7 +198,14 @@ def _sanitize_user_entry(entry: Any) -> Dict[str, List[str]]:
     raw_pages = entry.get("pages")
     # None 表示"全部"（未限制），保存为完整全集；列表表示显式集合。
     valid_page_ids = all_page_ids()
-    pages = valid_page_ids if raw_pages is None else [p for p in valid_page_ids if p in set(raw_pages)]
+    if raw_pages is None:
+        pages = valid_page_ids
+    else:
+        requested = set(raw_pages)
+        # 空间管理从素材库拆出后沿用原素材库权限，避免已有用户类型因页面拆分突然失去入口。
+        if "asset-manager" in requested and "storage-manager" in valid_page_ids:
+            requested.add("storage-manager")
+        pages = [p for p in valid_page_ids if p in requested]
     return {"pages": pages}
 
 

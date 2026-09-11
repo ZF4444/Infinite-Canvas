@@ -1193,6 +1193,14 @@
                     </svg>
                     <span class="side-pill-text">全局广播</span>
                 </button>
+                <button class="side-pill" id="nav-storage-manager" onclick="switchUI(this, 'storage-manager')" type="button" title="空间管理">
+                    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M21 12c0 1.1-4 2-9 2s-9-.9-9-2"></path>
+                        <path d="M3 6v12c0 1.1 4 2 9 2s9-.9 9-2V6"></path>
+                        <ellipse cx="12" cy="6" rx="9" ry="2"></ellipse>
+                    </svg>
+                    <span class="side-pill-text">空间管理</span>
+                </button>
                 <button class="side-pill" id="nav-my-account" onclick="switchUI(this, 'my-account')" type="button" title="我的账户">
                     <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                         <circle cx="12" cy="8" r="4"></circle>
@@ -1225,6 +1233,7 @@
             <iframe id="frame-gpt-chat" data-src="/static/gpt-chat.html" scrolling="yes"></iframe>
             <iframe id="frame-canvas" data-src="/static/canvas-manager.html" class="active" scrolling="yes"></iframe>
             <iframe id="frame-asset-manager" data-src="/static/asset-manager.html" scrolling="yes"></iframe>
+            <iframe id="frame-storage-manager" data-src="/static/storage-manager.html?tab=storage" scrolling="yes"></iframe>
             <iframe id="frame-my-account" data-src="/static/my-account.html" scrolling="yes"></iframe>
             <iframe id="frame-api-settings" data-src="/static/ai-connections.html" scrolling="yes"></iframe>
             <iframe id="frame-comfyui-settings" data-src="/static/workflow-settings.html" scrolling="yes"></iframe>

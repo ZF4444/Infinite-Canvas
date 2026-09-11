@@ -611,10 +611,25 @@ function bindNodeEvents(nodeElements=world.querySelectorAll('.image-node')){
                 render();
             });
         });
+        el.querySelectorAll('[data-candidate-remove]').forEach(btn => {
+            btn.addEventListener('mousedown', e => { e.preventDefault(); e.stopPropagation(); }, true);
+            btn.addEventListener('click', e => {
+                e.preventDefault(); e.stopPropagation();
+                const node = nodes.find(n => n.id === id);
+                if(!node) return;
+                const removed = Number(btn.dataset.candidateRemoveIndex);
+                if(!Number.isInteger(removed)) return;
+                pushUndo();
+                removeCandidateFromNode(node, removed);
+                render();
+                scheduleSave();
+            });
+        });
         el.querySelectorAll('[data-candidate-grid-item]').forEach(item => {
             item.addEventListener('mousedown', e => { e.preventDefault(); e.stopPropagation(); }, true);
             item.addEventListener('click', e => {
                 e.preventDefault(); e.stopPropagation();
+                if(e.target.closest('[data-candidate-remove]')) return;
                 const node = nodes.find(n => n.id === id);
                 if(!node) return;
                 pushUndo();
