@@ -232,6 +232,8 @@ function renderAssetCard(item){
 function renderAssetDetail(item){
     if(!item) return `<div class="panel-head"><div class="panel-title"><strong>素材预览</strong><span>选择一个素材查看详情</span></div></div><div class="detail-scroll"><div class="detail-empty"><i data-lucide="image"></i><span>暂无可预览素材</span></div></div>`;
     if(assetEditMode && item.id === selectedAssetId){
+        const resolution = Number(item.natural_w || item.width || item.w || 0) > 0 && Number(item.natural_h || item.height || item.h || 0) > 0 ? `${Number(item.natural_w || item.width || item.w)} × ${Number(item.natural_h || item.height || item.h)}` : '未知';
+        const size = Number(item.size || item.size_bytes || 0) > 0 ? formatFileSize(item.size || item.size_bytes) : '未知';
         return `
             <div class="panel-head">
                 <div class="panel-title"><strong>编辑素材</strong><span>当前分组内直接保存</span></div>
@@ -246,6 +248,8 @@ function renderAssetDetail(item){
                     <label class="inline-edit-field"><span>素材名称</span><input id="assetEditName" type="text" value="${escapeAttr(item.name || '')}" placeholder="素材名称"></label>
                     <div class="detail-meta-grid">
                         <div class="detail-meta"><span>类型</span><strong>${escapeHtml(assetKindLabel(item))}</strong></div>
+                        <div class="detail-meta"><span>分辨率</span><strong>${escapeHtml(resolution)}</strong></div>
+                        <div class="detail-meta"><span>文件大小</span><strong>${escapeHtml(size)}</strong></div>
                         <div class="detail-meta"><span>创建时间</span><strong>${escapeHtml(formatDate(item.created_at))}</strong></div>
                     </div>
                     <div class="detail-url">${escapeHtml(item.url || '')}</div>
@@ -253,6 +257,8 @@ function renderAssetDetail(item){
             </div>
         `;
     }
+    const resolution = Number(item.natural_w || item.width || item.w || 0) > 0 && Number(item.natural_h || item.height || item.h || 0) > 0 ? `${Number(item.natural_w || item.width || item.w)} × ${Number(item.natural_h || item.height || item.h)}` : '未知';
+    const size = Number(item.size || item.size_bytes || 0) > 0 ? formatFileSize(item.size || item.size_bytes) : '未知';
     return `
         <div class="panel-head">
             <div class="panel-title"><strong>素材预览</strong><span>${escapeHtml(assetKindLabel(item))}</span></div>
@@ -266,9 +272,11 @@ function renderAssetDetail(item){
             <div class="detail-media"><button class="detail-media-frame detail-media-zoomable" type="button" data-asset-preview="${escapeAttr(item.id)}" title="点击放大预览">${assetThumb(item)}</button></div>
             <div class="detail-body">
                 <input class="detail-name-input" data-asset-inline-name="${escapeAttr(item.id)}" type="text" value="${escapeAttr(item.name || 'asset')}" title="直接修改名称">
-                <div class="detail-meta-grid">
-                    <div class="detail-meta"><span>类型</span><strong>${escapeHtml(assetKindLabel(item))}</strong></div>
-                    <div class="detail-meta"><span>创建时间</span><strong>${escapeHtml(formatDate(item.created_at))}</strong></div>
+                    <div class="detail-meta-grid">
+                        <div class="detail-meta"><span>类型</span><strong>${escapeHtml(assetKindLabel(item))}</strong></div>
+                        <div class="detail-meta"><span>分辨率</span><strong>${escapeHtml(resolution)}</strong></div>
+                        <div class="detail-meta"><span>文件大小</span><strong>${escapeHtml(size)}</strong></div>
+                        <div class="detail-meta"><span>创建时间</span><strong>${escapeHtml(formatDate(item.created_at))}</strong></div>
                     <div class="detail-meta"><span>资产库</span><strong>${escapeHtml(activeAssetLibrary()?.name || '资产库')}</strong></div>
                     <div class="detail-meta"><span>分组</span><strong>${escapeHtml(activeAssetCategory()?.name || '分组')}</strong></div>
                 </div>

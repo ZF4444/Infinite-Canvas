@@ -301,6 +301,7 @@ function renderStorageDetail(item){
             </div>
         `;
     }
+    const resolution = Number(item.natural_w || item.width || item.w || 0) > 0 && Number(item.natural_h || item.height || item.h || 0) > 0 ? `${Number(item.natural_w || item.width || item.w)} × ${Number(item.natural_h || item.height || item.h)}` : '未知';
     return `
         <div class="panel-head">
             <div class="panel-title"><strong>文件详情</strong><span>${escapeHtml(item.category || 'unknown')}</span></div>
@@ -314,10 +315,11 @@ function renderStorageDetail(item){
             <div class="detail-media"><button class="detail-media-frame detail-media-zoomable" type="button" data-storage-preview="${escapeAttr(item.file_id)}" title="点击放大预览">${assetThumb({url:item.url, name:item.original_name || item.filename, kind:item.kind})}</button></div>
             <div class="detail-body">
                 <div class="detail-name">${escapeHtml(item.original_name || item.filename || 'file')}</div>
-                <div class="detail-meta-grid">
-                    <div class="detail-meta"><span>类型</span><strong>${escapeHtml(item.kind || 'document')}</strong></div>
-                    <div class="detail-meta"><span>类别</span><strong>${escapeHtml(item.category || 'unknown')}</strong></div>
-                    <div class="detail-meta"><span>大小</span><strong>${escapeHtml(formatFileSize(item.size || 0))}</strong></div>
+                    <div class="detail-meta-grid">
+                        <div class="detail-meta"><span>类型</span><strong>${escapeHtml(item.kind || 'document')}</strong></div>
+                        <div class="detail-meta"><span>类别</span><strong>${escapeHtml(item.category || 'unknown')}</strong></div>
+                        <div class="detail-meta"><span>分辨率</span><strong>${escapeHtml(resolution)}</strong></div>
+                        <div class="detail-meta"><span>大小</span><strong>${escapeHtml(formatFileSize(item.size || 0))}</strong></div>
                     <div class="detail-meta"><span>创建时间</span><strong>${escapeHtml(formatDate(item.created_at || 0))}</strong></div>
                 </div>
                 <div class="detail-url">${escapeHtml(item.url || '')}</div>
