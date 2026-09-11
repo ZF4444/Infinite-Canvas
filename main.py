@@ -4369,18 +4369,24 @@ async def run_canvas_runninghub_task(task_id: str, payload: RunningHubSubmitRequ
         status = "RUNNING"
         urls: list[str] = []
         media_items: list[dict] = []
+        seen_remote_outputs: set[str] = set()
         while time.monotonic() < deadline:
             if not await refresh_canvas_task_lease(task_id, lease_token):
                 # Lost the lease; a recovered worker owns this task now.
                 return
             raw = await transport.query(provider, api_key, str(upstream_task_id))
             code = raw.get("code") if isinstance(raw, dict) else None
+            current_outputs = runninghub_extract_outputs(raw.get("data") if isinstance(raw, dict) else raw)
+            new_outputs = [remote for remote in current_outputs if remote not in seen_remote_outputs]
             stored_outputs = await asyncio.gather(*(
                 runninghub_store_remote_output_item(remote)
-                for remote in runninghub_extract_outputs(raw.get("data") if isinstance(raw, dict) else raw)
+                for remote in new_outputs
             ))
-            urls = [item[0] for item in stored_outputs]
-            media_items = [item[1] for item in stored_outputs]
+            for remote, (url, item) in zip(new_outputs, stored_outputs):
+                seen_remote_outputs.add(remote)
+                if url and url not in urls:
+                    urls.append(url)
+                    media_items.append(item)
             status = runninghub_normalized_status(raw, code, urls)
             if status in {"SUCCESS", "FAILED"}:
                 break
