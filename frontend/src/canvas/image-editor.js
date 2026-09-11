@@ -401,6 +401,7 @@ function setImageEditMode(mode, userTouched=false){
     const editPanelEl = document.querySelector('.image-edit-panel');
     const previewDownloadBtn = document.getElementById('previewDownloadBtn');
     const previewDownloadAllBtn = document.getElementById('previewDownloadAllBtn');
+    const previewDeleteCandidateBtn = document.getElementById('previewDeleteCandidateBtn');
     const modeBar = document.querySelector('.image-edit-mode');
     const videoFrameTools = document.getElementById('videoFrameTools');
     const zoomLabel = document.getElementById('imageEditZoomLabel');
@@ -414,6 +415,14 @@ function setImageEditMode(mode, userTouched=false){
     editPanelEl?.classList.toggle('video-preview-mode', isVideoPreview);
     if(previewDownloadBtn) previewDownloadBtn.style.display = isPreview ? 'inline-flex' : 'none';
     if(previewDownloadAllBtn) previewDownloadAllBtn.style.display = isPreview && !isVideoPreview && previewDownloadGroupItems().length > 1 ? 'inline-flex' : 'none';
+    if(previewDeleteCandidateBtn){
+        const previewNode = nodes.find(n => n.id === previewNavState.nodeId);
+        const canDeleteCandidate = !isVideoPreview && previewNavState.source === 'candidates' && candidateCountForNode(previewNode) > 1;
+        previewDeleteCandidateBtn.style.display = isPreview && !isVideoPreview ? 'inline-flex' : 'none';
+        previewDeleteCandidateBtn.disabled = !canDeleteCandidate;
+        previewDeleteCandidateBtn.title = canDeleteCandidate ? '删除当前候选图' : '候选池仅剩一张图片，无法删除';
+        previewDeleteCandidateBtn.setAttribute('aria-label', previewDeleteCandidateBtn.title);
+    }
     if(modeBar) modeBar.style.display = isVideoPreview ? 'none' : '';
     if(videoFrameTools) videoFrameTools.style.display = isVideoPreview && isPreview ? 'flex' : 'none';
     if(zoomLabel) zoomLabel.style.display = isVideoPreview ? 'none' : '';
@@ -2075,6 +2084,19 @@ function navigatePreviewImage(delta){
     const current = images.findIndex(entry => entry.index === Number(previewNavState.index));
     const next = ((current >= 0 ? current : 0) + Number(delta || 0) + count) % count;
     openImageEditor(node.id, images[next].index, {source:previewNavState.source});
+}
+function deletePreviewCandidate(){
+    const node = nodes.find(n => n.id === previewNavState.nodeId);
+    const pool = nodeCandidateImages(node);
+    const index = Number(previewNavState.index);
+    if(!node || previewNavState.source !== 'candidates' || pool.length <= 1 || !Number.isInteger(index) || index < 0 || index >= pool.length) return;
+    node.candidateImages = pool.filter((_, candidateIndex) => candidateIndex !== index);
+    const nextIndex = Math.min(index, node.candidateImages.length - 1);
+    setNodeMainCandidate(node, nextIndex);
+    selectedImage = {nodeId:node.id, index:0};
+    render();
+    scheduleSave();
+    openImageEditor(node.id, nextIndex, {source:'candidates'});
 }
 function openImagePreview(nodeId, imageIndex=0, options={}){
     const node = nodes.find(n => n.id === nodeId);
