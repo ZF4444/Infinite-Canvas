@@ -42,20 +42,23 @@ html:not(.studio-theme-dark):not(.theme-dark) body:has(.asset-page) {
   background: linear-gradient(115deg, #c9c1ff 0%, var(--workspace-lavender) 36%, #f8ebf5 67%, var(--workspace-peach) 100%) !important;
   color: var(--workspace-ink);
 }
-html:not(.studio-theme-dark):not(.theme-dark) .asset-page { max-width: 1520px; padding: 50px 56px 64px; gap: 18px; }
-html:not(.studio-theme-dark):not(.theme-dark) .asset-title { font-size: clamp(36px, 4vw, 58px); letter-spacing: -.05em; line-height: 1; }
-html:not(.studio-theme-dark):not(.theme-dark) .asset-sub { margin-top: 14px; color: var(--workspace-muted); font-size: 14px; }
+html:not(.studio-theme-dark):not(.theme-dark) .asset-page { max-width: none; padding: 20px 28px; gap: 12px; }
+html:not(.studio-theme-dark):not(.theme-dark) .asset-title { font-size: 18px; letter-spacing: -.015em; line-height: 1.15; }
+html:not(.studio-theme-dark):not(.theme-dark) .asset-sub { margin-top: 5px; color: var(--workspace-muted); font-size: 12px; }
 html:not(.studio-theme-dark):not(.theme-dark) .asset-status,
 html:not(.studio-theme-dark):not(.theme-dark) .asset-tabs,
 html:not(.studio-theme-dark):not(.theme-dark) .asset-panel { border-color: rgba(255,255,255,.82); background: rgba(255,255,255,.68); box-shadow: 0 18px 42px rgba(102,84,153,.11); backdrop-filter: blur(20px) saturate(130%); }
-html:not(.studio-theme-dark):not(.theme-dark) .asset-tabs { border-radius: 16px; padding: 5px; }
-html:not(.studio-theme-dark):not(.theme-dark) .asset-tabs button { height: 38px; padding: 0 14px; border-radius: 11px; font-size: 12px; }
+html:not(.studio-theme-dark):not(.theme-dark) .asset-tabs { border-radius: 13px; padding: 10px 18px; }
+html:not(.studio-theme-dark):not(.theme-dark) .asset-tabs button { height: 32px; padding: 0 11px; border-radius: 8px; font-size: 11.5px; }
 html:not(.studio-theme-dark):not(.theme-dark) .asset-tabs button.active { background: linear-gradient(105deg, #328df7, #5d6ff2); color: #fff; box-shadow: 0 9px 18px rgba(54,119,240,.2); }
 html:not(.studio-theme-dark):not(.theme-dark) .asset-btn,
-html:not(.studio-theme-dark):not(.theme-dark) .asset-icon-btn { border-color: rgba(255,255,255,.84); border-radius: 11px; background: rgba(255,255,255,.7); }
+html:not(.studio-theme-dark):not(.theme-dark) .asset-icon-btn { border-color: rgba(255,255,255,.84); border-radius: 8px; background: rgba(255,255,255,.7); }
 html:not(.studio-theme-dark):not(.theme-dark) .asset-card,
 html:not(.studio-theme-dark):not(.theme-dark) .prompt-row,
-html:not(.studio-theme-dark):not(.theme-dark) .nav-row { border-color: rgba(255,255,255,.76); border-radius: 15px; background: rgba(255,255,255,.64); }
+html:not(.studio-theme-dark):not(.theme-dark) .nav-row { border-color: rgba(255,255,255,.76); background: rgba(255,255,255,.64); }
+html:not(.studio-theme-dark):not(.theme-dark) .asset-card { border-radius: 10px; }
+html:not(.studio-theme-dark):not(.theme-dark) .prompt-row { border-radius: 12px; }
+html:not(.studio-theme-dark):not(.theme-dark) .nav-row { border-radius: 10px; }
 @media (max-width: 760px) {
-  html:not(.studio-theme-dark):not(.theme-dark) .asset-page { padding: 28px 16px 44px; }
+  html:not(.studio-theme-dark):not(.theme-dark) .asset-page { padding: 14px; }
 }
