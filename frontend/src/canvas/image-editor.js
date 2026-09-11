@@ -898,7 +898,9 @@ function updatePreviewMediaMeta(){
     const editing = currentEditImage();
     const image = editing.image || {};
     const resolution = previewResolutionText().replace(/^.*?:\s*/, '') || '分辨率未知';
-    meta.innerHTML = `<span>${escapeHtml(resolution)}</span><span>${escapeHtml(previewFileSizeText(image))}</span><span>${escapeHtml(previewDateText(image, editing.node))}</span>`;
+    const size = previewFileSizeText(image).replace(/^大小\s*/, '') || '未知';
+    const date = previewDateText(image, editing.node).replace(/^日期\s*/, '') || '未知';
+    meta.innerHTML = `<div><span class="preview-media-meta-label">分辨率：</span><span>${escapeHtml(resolution)}</span></div><div><span class="preview-media-meta-label">文件大小：</span><span>${escapeHtml(size)}</span></div><div><span class="preview-media-meta-label">日期：</span><span>${escapeHtml(date)}</span></div>`;
 }
 async function hydratePreviewFileMeta(image){
     const fileId = String(image?.file_id || fileIdFromUrl(image?.url || '') || '').trim();
