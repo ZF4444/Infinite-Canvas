@@ -231,7 +231,7 @@ async function pollRunningHubTask(taskId, target={}){
             });
             if(task.status === 'succeeded'){
                 const result = task.result || {};
-                const outputs = result.media_items || result.image_items || result.urls || [];
+                const outputs = resultMediaUrls(result);
                 checkQuotaWarningFromResult(result);
                 return outputs;
             }

@@ -92,7 +92,10 @@ def normalized_status(raw: Any, code: Any, urls: list[str]) -> str:
         return "RUNNING"
     status = next((str(item.get("status") or "").upper() for item in (raw, data) if isinstance(item, dict) and item.get("status")), "")
     if status in {"SUCCESS", "SUCCEEDED", "COMPLETED"}:
-        return "SUCCESS"
+        # RunningHub can briefly report a terminal status before its output
+        # list is populated. Do not finalize an empty result; the caller will
+        # keep polling until outputs become available or the task times out.
+        return "SUCCESS" if urls else "RUNNING"
     if status in {"FAILED", "ERROR", "CANCELLED"}:
         return "FAILED"
     if urls:

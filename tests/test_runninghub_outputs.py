@@ -56,6 +56,10 @@ def test_runninghub_code_zero_without_urls_stays_running():
     assert main.runninghub_normalized_status({"code": 0, "data": {}}, 0, ["https://example.com/a.png"]) == "SUCCESS"
 
 
+def test_runninghub_terminal_status_without_outputs_keeps_polling():
+    assert main.runninghub_normalized_status({"status": "SUCCESS", "data": {}}, 0, []) == "RUNNING"
+
+
 def test_runninghub_output_kind_uses_media_extension():
     assert main.runninghub_output_kind("mp4") == "video"
     assert main.runninghub_output_kind("wav") == "audio"
