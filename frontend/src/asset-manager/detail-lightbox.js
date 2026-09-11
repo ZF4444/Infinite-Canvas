@@ -46,6 +46,11 @@ function showDetailPreview(source, id){
     }
     const url = source === 'local' ? localObjectUrl(item) : item.url;
     if(!url) return;
+    const initialWidth = Number(item.natural_w || item.width || item.w || 0);
+    const initialHeight = Number(item.natural_h || item.height || item.h || 0);
+    const resolution = initialWidth > 0 && initialHeight > 0 ? `${Math.round(initialWidth)} × ${Math.round(initialHeight)}` : '读取中…';
+    const fileSize = Number(item.size || item.size_bytes || 0) > 0 ? formatFileSize(item.size || item.size_bytes) : '未知大小';
+    const createdAt = item.created_at ? formatDate(item.created_at) : '未知日期';
     document.querySelector('.asset-lightbox')?.remove();
     const overlay = document.createElement('div');
     overlay.className = 'asset-lightbox';
@@ -56,9 +61,21 @@ function showDetailPreview(source, id){
         <div class="asset-lightbox-inner" role="dialog" aria-modal="true" aria-label="图片预览">
             <img class="asset-lightbox-image" src="${escapeAttr(url)}" alt="${escapeAttr(item.name || 'preview')}" draggable="false">
         </div>
+        <div class="asset-lightbox-meta" aria-live="polite">
+            <span data-lightbox-resolution>${escapeHtml(resolution)}</span>
+            <span>${escapeHtml(fileSize)}</span>
+            <span>${escapeHtml(createdAt)}</span>
+        </div>
     `;
     document.body.appendChild(overlay);
     document.body.classList.add('asset-lightbox-open');
+    const previewImage = overlay.querySelector('.asset-lightbox-image');
+    previewImage.addEventListener('load', () => {
+        const resolutionEl = overlay.querySelector('[data-lightbox-resolution]');
+        if(resolutionEl && previewImage.naturalWidth && previewImage.naturalHeight){
+            resolutionEl.textContent = `${previewImage.naturalWidth} × ${previewImage.naturalHeight}`;
+        }
+    }, {once:true});
 }
 function closeDetailPreview(){
     document.querySelector('.asset-lightbox')?.remove();

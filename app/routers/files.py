@@ -63,6 +63,7 @@ async def get_file_meta(file_id: str):
         "kind": entry.get("kind") or "",
         "mime_type": entry.get("content_type") or "application/octet-stream",
         "size": entry.get("size") or 0,
+        "created_at": entry.get("created_at") or 0,
         "preview_url": entry.get("url") or "",
         "download_url": entry.get("download_url") or "",
     }

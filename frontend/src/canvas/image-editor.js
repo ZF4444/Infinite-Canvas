@@ -879,8 +879,44 @@ function previewResolutionText(){
     if(!w || !h) return '';
     return `${tr('smart.resolution')}: ${Math.round(w)} x ${Math.round(h)}`;
 }
+function previewFileSizeText(image){
+    const bytes = Number(image?.size || image?.size_bytes || image?.file_size || 0);
+    if(!Number.isFinite(bytes) || bytes <= 0) return '大小未知';
+    const units = ['B','KB','MB','GB','TB'];
+    const index = Math.min(units.length - 1, Math.floor(Math.log(bytes) / Math.log(1024)));
+    return `大小 ${(bytes / Math.pow(1024, index)).toFixed(index ? 1 : 0)} ${units[index]}`;
+}
+function previewDateText(image, node){
+    let timestamp = Number(image?.created_at || image?.createdAt || node?.created_at || node?.createdAt || 0);
+    if(timestamp > 0 && timestamp < 1e12) timestamp *= 1000;
+    if(!timestamp) return '日期未知';
+    try { return `日期 ${new Date(timestamp).toLocaleDateString('zh-CN')}`; } catch(_) { return '日期未知'; }
+}
+function updatePreviewMediaMeta(){
+    const meta = document.getElementById('previewMediaMeta');
+    if(!meta) return;
+    const editing = currentEditImage();
+    const image = editing.image || {};
+    const resolution = previewResolutionText().replace(/^.*?:\s*/, '') || '分辨率未知';
+    meta.innerHTML = `<span>${escapeHtml(resolution)}</span><span>${escapeHtml(previewFileSizeText(image))}</span><span>${escapeHtml(previewDateText(image, editing.node))}</span>`;
+}
+async function hydratePreviewFileMeta(image){
+    const fileId = String(image?.file_id || fileIdFromUrl(image?.url || '') || '').trim();
+    if(!fileId) return;
+    try {
+        const response = await fetch(`/api/files/${encodeURIComponent(fileId)}`);
+        if(!response.ok) return;
+        const data = await response.json();
+        const current = currentEditImage().image;
+        if(current !== image) return;
+        if(Number(data?.size) > 0) image.size = Number(data.size);
+        if(Number(data?.created_at) > 0) image.created_at = Number(data.created_at);
+        updatePreviewMediaMeta();
+    } catch(_) {}
+}
 function updatePreviewMetaHint(extraText=previewMetaExtraText){
     previewMetaExtraText = extraText || '';
+    updatePreviewMediaMeta();
     const hint = document.getElementById('previewMetaHint');
     if(!hint) return;
     hint.textContent = [previewResolutionText(), previewMetaExtraText].filter(Boolean).join(' · ');
@@ -2125,6 +2161,7 @@ function openImageEditor(nodeId, imageIndex=0, options={}){
     img.dataset.proxyFallbackTried = '';
     img.crossOrigin = 'anonymous';
     img.src = displayMediaUrl(image);
+    void hydratePreviewFileMeta(image);
     setImageEditMode('preview');
     updatePreviewNavButtons();
     refreshIcons();
