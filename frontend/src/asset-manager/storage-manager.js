@@ -186,6 +186,7 @@ function renderStorageManager(){
     const quotaBytes = Number(storageUsage?.quota_bytes || 0);
     const remainingBytes = storageUsage?.remaining_bytes;
     const {totalMatches, totalPages, currentPage} = storagePageInfo();
+    const categoryUsageHtml = categories.map(entry => `<div class="detail-meta"><span>${escapeHtml(entry.category || 'unknown')}</span><strong>${escapeHtml(formatFileSize(entry.size_bytes || 0))} / ${entry.file_count}</strong></div>`).join('');
     const progressTone = percent >= 95 ? 'linear-gradient(90deg,#ef4444,#fb923c)' : percent >= 80 ? 'linear-gradient(90deg,#f59e0b,#fbbf24)' : 'linear-gradient(90deg,#2563eb,#34d399)';
     root.innerHTML = `
         <aside class="asset-panel asset-nav">
@@ -217,6 +218,10 @@ function renderStorageManager(){
                         </button>
                     `).join('')}
                 </div>
+                <section class="storage-category-usage">
+                    <div class="storage-category-usage-title">按类别占用</div>
+                    <div class="detail-meta-grid">${categoryUsageHtml || '<div class="detail-meta"><span>暂无数据</span><strong>0</strong></div>'}</div>
+                </section>
             </div>
         </aside>
         <section class="asset-panel asset-content ${storageManageMode ? 'manage-on' : ''}">
@@ -288,16 +293,11 @@ function renderStorageManager(){
     `;
 }
 function renderStorageDetail(item){
-    const categories = storageCategories();
-    const categoryHtml = categories.map(entry => `<div class="detail-meta"><span>${escapeHtml(entry.category || 'unknown')}</span><strong>${escapeHtml(formatFileSize(entry.size_bytes || 0))} / ${entry.file_count}</strong></div>`).join('');
     if(!item){
         return `
             <div class="panel-head"><div class="panel-title"><strong>空间详情</strong><span>选择文件查看详情</span></div></div>
             <div class="detail-scroll">
-                <div class="detail-body">
-                    <div class="detail-name">按类别占用</div>
-                    <div class="detail-meta-grid">${categoryHtml || '<div class="detail-meta"><span>暂无数据</span><strong>0</strong></div>'}</div>
-                </div>
+                <div class="detail-empty"><i data-lucide="file-search"></i><span>选择文件查看详情</span></div>
             </div>
         `;
     }
@@ -321,10 +321,6 @@ function renderStorageDetail(item){
                     <div class="detail-meta"><span>创建时间</span><strong>${escapeHtml(formatDate(item.created_at || 0))}</strong></div>
                 </div>
                 <div class="detail-url">${escapeHtml(item.url || '')}</div>
-                <div class="detail-body" style="padding:0;margin-top:12px;">
-                    <div class="detail-name" style="font-size:13px;">按类别占用</div>
-                    <div class="detail-meta-grid">${categoryHtml || '<div class="detail-meta"><span>暂无数据</span><strong>0</strong></div>'}</div>
-                </div>
             </div>
         </div>
     `;

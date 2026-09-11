@@ -102,6 +102,8 @@ button { border:0; cursor:pointer; }
 .nav-row.active .nav-row-count { background:var(--strong); color:var(--strong-text); }
 .nav-empty { min-height:58px; border:1px dashed var(--line-2); border-radius:12px; background:var(--card); color:var(--muted); display:flex; align-items:center; justify-content:center; text-align:center; padding:12px; font-size:11px; font-weight:750; }
 .nav-tree { display:flex; flex-direction:column; gap:6px; }
+.storage-category-usage { margin:18px 12px 12px; padding-top:14px; border-top:1px solid var(--line); }
+.storage-category-usage-title { margin-bottom:10px; color:var(--text); font-size:12px; font-weight:850; }
 .tree-branch { display:flex; flex-direction:column; gap:3px; }
 .tree-row { width:100%; min-height:34px; border-radius:9px; border:1px solid transparent; background:transparent; color:var(--text); display:grid; align-items:center; gap:7px; text-align:left; }
 .tree-parent { grid-template-columns:18px minmax(0,1fr) auto; padding:6px 8px; font-weight:900; }
