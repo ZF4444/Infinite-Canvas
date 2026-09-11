@@ -418,7 +418,7 @@ function setImageEditMode(mode, userTouched=false){
     if(previewDeleteCandidateBtn){
         const previewNode = nodes.find(n => n.id === previewNavState.nodeId);
         const canDeleteCandidate = !isVideoPreview && previewNavState.source === 'candidates' && candidateCountForNode(previewNode) > 1;
-        previewDeleteCandidateBtn.style.display = isPreview && !isVideoPreview ? 'inline-flex' : 'none';
+        previewDeleteCandidateBtn.style.display = canDeleteCandidate ? 'inline-flex' : 'none';
         previewDeleteCandidateBtn.disabled = !canDeleteCandidate;
         previewDeleteCandidateBtn.title = canDeleteCandidate ? '删除当前候选图' : '候选池仅剩一张图片，无法删除';
         previewDeleteCandidateBtn.setAttribute('aria-label', previewDeleteCandidateBtn.title);
@@ -2091,6 +2091,9 @@ function deletePreviewCandidate(){
     const index = Number(previewNavState.index);
     if(!node || previewNavState.source !== 'candidates' || pool.length <= 1 || !Number.isInteger(index) || index < 0 || index >= pool.length) return;
     node.candidateImages = pool.filter((_, candidateIndex) => candidateIndex !== index);
+    // setNodeMainCandidate merges the displayed main image into the pool. Drop
+    // the deleted main image first, while retaining any linked mask media.
+    node.images = (node.images || []).filter(isMaskImageItem);
     const nextIndex = Math.min(index, node.candidateImages.length - 1);
     setNodeMainCandidate(node, nextIndex);
     selectedImage = {nodeId:node.id, index:0};
