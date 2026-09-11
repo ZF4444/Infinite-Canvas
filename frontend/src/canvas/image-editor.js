@@ -903,7 +903,7 @@ function updatePreviewMediaMeta(){
     meta.innerHTML = `<div><span class="preview-media-meta-label">分辨率：</span><span>${escapeHtml(resolution)}</span></div><div><span class="preview-media-meta-label">文件大小：</span><span>${escapeHtml(size)}</span></div><div><span class="preview-media-meta-label">日期：</span><span>${escapeHtml(date)}</span></div>`;
 }
 async function hydratePreviewFileMeta(image){
-    const fileId = String(image?.file_id || fileIdFromUrl(image?.url || '') || '').trim();
+    const fileId = String(image?.file_id || image?.fileId || fileIdFromUrl(image?.url || image?.preview_url || image?.download_url || '') || '').trim();
     if(!fileId) return;
     try {
         const response = await fetch(`/api/files/${encodeURIComponent(fileId)}`);

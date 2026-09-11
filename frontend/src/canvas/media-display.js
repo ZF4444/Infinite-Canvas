@@ -165,7 +165,23 @@ function resultMediaUrls(result){
         if(typeof value === 'object'){
             if(value.url || value.path || value.src || value.uri){
                 const url = value.url || value.path || value.src || value.uri;
-                if(url) urls.push({url, file_id:value.file_id || value.fileId || '', kind:value.kind || value.type || value.mediaKind || '', name:value.name || value.filename || ''});
+                if(url){
+                    const item = {
+                    url,
+                    file_id:value.file_id || value.fileId || '',
+                    kind:value.kind || value.type || value.mediaKind || '',
+                    name:value.name || value.filename || ''
+                    };
+                    const size = value.size || value.size_bytes || value.file_size;
+                    const createdAt = value.created_at || value.createdAt;
+                    const width = value.natural_w || value.width || value.w;
+                    const height = value.natural_h || value.height || value.h;
+                    if(size) item.size = size;
+                    if(createdAt) item.created_at = createdAt;
+                    if(width) item.natural_w = width;
+                    if(height) item.natural_h = height;
+                    urls.push(item);
+                }
             }
             ['items','outputs','videos','video_items','videoItems','audios','audio_items','audioItems','texts','files','file_items','fileItems','images','image_items','imageItems','urls','data','result','output','url'].forEach(key => add(value[key]));
             ['path','src','uri','output_url','outputUrl','video','video_url','videoUrl','mp4_url','mp4Url','download_url','downloadUrl','preview_url','previewUrl'].forEach(key => add(value[key]));
@@ -594,8 +610,14 @@ function fileNameFromUrl(url=''){
 }
 function fileIdFromUrl(url=''){
     const text = String(url || '').trim();
-    const match = text.match(/^\/api\/files\/([^/?#]+)\/(?:preview|download)(?:[/?#]|$)/);
-    return match ? decodeURIComponent(match[1]) : '';
+    try {
+        const parsed = new URL(text, window.location.origin);
+        const match = parsed.pathname.match(/^\/api\/files\/([^/]+)\/(?:preview|download)(?:\/?$)/);
+        return match ? decodeURIComponent(match[1]) : '';
+    } catch(_) {
+        const match = text.match(/\/api\/files\/([^/?#]+)\/(?:preview|download)(?:[/?#]|$)/);
+        return match ? decodeURIComponent(match[1]) : '';
+    }
 }
 function fileDownloadUrl(item){
     const fileId = String(item?.file_id || '').trim();
