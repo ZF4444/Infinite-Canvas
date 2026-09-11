@@ -145,6 +145,47 @@ function renderAssetManager(){
             ${renderAssetDetail(detail)}
         </aside>
     `;
+    hydrateAssetDetailMetadata(detail);
+}
+function hydrateAssetDetailMetadata(item){
+    if(!item || item._metadataLoading) return;
+    const hasResolution = Number(item.natural_w || item.width || item.w || 0) > 0 && Number(item.natural_h || item.height || item.h || 0) > 0;
+    const hasSize = Number(item.size || item.size_bytes || 0) > 0;
+    const fileId = String(item.file_id || '').trim();
+    if(hasResolution && (hasSize || !fileId)) return;
+    item._metadataLoading = true;
+    let changed = false;
+    const finish = (width=0, height=0, fileMeta=null) => {
+        if(width > 0 && height > 0 && (!hasResolution || item.natural_w !== width || item.natural_h !== height)){
+            item.natural_w = width;
+            item.natural_h = height;
+            changed = true;
+        }
+        if(fileMeta){
+            if(Number(fileMeta.size) > 0 && Number(item.size || item.size_bytes || 0) <= 0){ item.size = Number(fileMeta.size); changed = true; }
+            if(Number(fileMeta.created_at) > 0 && !Number(item.created_at)){ item.created_at = Number(fileMeta.created_at); changed = true; }
+        }
+        delete item._metadataLoading;
+        if(changed && selectedAsset() === item) render();
+    };
+    const mediaKind = assetKind(item);
+    const metadataPromise = fileId
+        ? fetch(`/api/files/${encodeURIComponent(fileId)}`).then(response => response.ok ? response.json() : null).catch(() => null)
+        : Promise.resolve(null);
+    if(mediaKind === 'video'){
+        const probe = document.createElement('video');
+        probe.preload = 'metadata';
+        probe.onloadedmetadata = () => metadataPromise.then(meta => finish(probe.videoWidth, probe.videoHeight, meta));
+        probe.onerror = () => metadataPromise.then(meta => finish(0, 0, meta));
+        probe.src = item.url || (fileId ? `/api/files/${encodeURIComponent(fileId)}/preview` : '');
+    } else if(mediaKind === 'image'){
+        const probe = new Image();
+        probe.onload = () => metadataPromise.then(meta => finish(probe.naturalWidth, probe.naturalHeight, meta));
+        probe.onerror = () => metadataPromise.then(meta => finish(0, 0, meta));
+        probe.src = item.url || (fileId ? `/api/files/${encodeURIComponent(fileId)}/preview` : '');
+    } else {
+        metadataPromise.then(meta => finish(0, 0, meta));
+    }
 }
 function renderUploadCard(cat){
     return `<button id="assetDrop" class="upload-grid-card" type="button" data-asset-upload ${!cat ? 'disabled' : ''}>
