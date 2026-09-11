@@ -42,7 +42,7 @@ html:not(.studio-theme-dark):not(.theme-dark) body:has(.asset-page) {
   background: linear-gradient(115deg, #c9c1ff 0%, var(--workspace-lavender) 36%, #f8ebf5 67%, var(--workspace-peach) 100%) !important;
   color: var(--workspace-ink);
 }
-html:not(.studio-theme-dark):not(.theme-dark) .asset-page { max-width: 1520px; padding: 50px 56px 64px; gap: 18px; }
+html:not(.studio-theme-dark):not(.theme-dark) .asset-page { max-width: none; padding: 50px 32px 64px; gap: 18px; }
 html:not(.studio-theme-dark):not(.theme-dark) .asset-title { font-size: clamp(36px, 4vw, 58px); letter-spacing: -.05em; line-height: 1; }
 html:not(.studio-theme-dark):not(.theme-dark) .asset-sub { margin-top: 14px; color: var(--workspace-muted); font-size: 14px; }
 html:not(.studio-theme-dark):not(.theme-dark) .asset-status,
